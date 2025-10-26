@@ -1,0 +1,18 @@
+#include <windows.h>
+#include "resource.h"
+
+// Icon
+IDI_APPICON ICON DISCARDABLE "icon.ico"
+IDI_VOLUME_SPEAKER ICON DISCARDABLE "speaker.ico"
+
+// Menu
+IDR_TRAYMENU MENU DISCARDABLE
+BEGIN
+POPUP "&TrayMenu" // This text is not shown, but POPUP is needed
+BEGIN
+MENUITEM "E&xit", IDM_EXIT
+END
+END
+
+// Add manifest for Common Controls 6.0 (required for themed trackbar)
+1 RT_MANIFEST "WinmmVol_manifest.xml"
