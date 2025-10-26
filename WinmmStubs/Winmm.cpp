@@ -376,7 +376,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             w = wcstok(NULL, L" \t\r\n", &checkText);
             if (w) pStr.track = ToInt(w);
         }
-        else if (cmd > CMD_CLOSE) {
+        else if (cmd < CMD_SET) {
             if (!pStr.device[0]) { lstrcpynW(pStr.device, token, 64); } // First token: usually device/alias
             continue;
         }
@@ -481,7 +481,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
     }
 
     // If device name is not cdaudio and alias is empty, relay to original
-    if (!IsWordEq(pStr.device, L"cdaudio") && !pStr.alias[0]) {
+    if (!IsWordEq(pStr.device, L"cdaudio") && !pStr.alias[0] && !DeviceInfo::FindByAlias(pStr.device)) {
         return FALSE;
     }
 
