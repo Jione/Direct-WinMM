@@ -686,18 +686,13 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
 MCIERROR WINAPI mciSendCommandWStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD_PTR fdwCommand, DWORD_PTR dwParam) {
     MCIERROR ret;
 #ifdef _DEBUG
-    dprintf(L"mciSendCommandW deviceId=0x%04X uMsg=0x%04X fdwCommand=0x%08X, dwParam=0x%08X", deviceId, uMsg, fdwCommand, dwParam);
     wchar_t errText[256]{ 0, };
+#endif
+    dprintf(L"mciSendCommandW deviceId=0x%04X uMsg=0x%04X fdwCommand=0x%08X, dwParam=0x%08X", deviceId, uMsg, fdwCommand, dwParam);
     if (!mciCommandHub(deviceId, uMsg, fdwCommand, dwParam, &ret)) {
         ret = mciSendCommandW(deviceId, uMsg, fdwCommand, dwParam);
     }
-    mciGetErrorStringW(ret, errText, 256);
-    dprintf(L"Return=%s", errText);
-#else
-    if (!mciCommandHub(deviceId, uMsg, fdwCommand, dwParam, &ret)) {
-        return mciSendCommandW(deviceId, uMsg, fdwCommand, dwParam);
-    }
-#endif
+    dprintf(L"Return=%s", mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
     return ret;
 }
 
@@ -720,8 +715,8 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
     case MCI_OPEN: {
         const MCI_OPEN_PARMSA* pA = (const MCI_OPEN_PARMSA*)dwParam;
         if (!pA) {
-            dprintf(L"Return=%s", mciGetErrorStringW(MCIERR_MISSING_PARAMETER, errText, 256) ? errText : L"Unknown error");
-            return MCIERR_MISSING_PARAMETER;
+            ret = MCIERR_MISSING_PARAMETER;
+            break;
         }
 
         // Convert to W struct
@@ -753,18 +748,16 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
         if (mciCommandHub(deviceId, uMsg, fdwCommand, (DWORD_PTR)&pW, &ret)) {
             MCI_OPEN_PARMSA* pOut = (MCI_OPEN_PARMSA*)dwParam;
             if (pOut) pOut->wDeviceID = pW.wDeviceID;
-            dprintf(L"Return=%s", mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
-            return ret;
+            break;
         }
         ret = mciSendCommandA(deviceId, uMsg, fdwCommand, dwParam);
-        dprintf(L"Return=%s", mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
-        return ret;
+        break;
     }
     case MCI_SYSINFO: {
         MCI_SYSINFO_PARMSA* pA = (MCI_SYSINFO_PARMSA*)dwParam;
         if (!pA) {
-            dprintf(L"Return=%s", mciGetErrorStringW(MCIERR_MISSING_PARAMETER, errText, 256) ? errText : L"Unknown error");
-            return MCIERR_MISSING_PARAMETER;
+            ret = MCIERR_MISSING_PARAMETER;
+            break;
         }
 
         MCI_SYSINFO_PARMSW pW; ZeroMemory(&pW, sizeof(pW));
@@ -776,8 +769,8 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
         if (pA->lpstrReturn && pA->dwRetSize > 0) {
             wbuf = (LPWSTR)LocalAlloc(LMEM_FIXED, sizeof(WCHAR) * pA->dwRetSize);
             if (!wbuf) {
-                dprintf(L"Return=%s", mciGetErrorStringW(MCIERR_OUT_OF_MEMORY, errText, 256) ? errText : L"Unknown error");
-                return MCIERR_OUT_OF_MEMORY;
+                ret = MCIERR_OUT_OF_MEMORY;
+                break;
             }
             wbuf[0] = L'\0';
         }
@@ -794,14 +787,13 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
         else ret = mciSendCommandA(deviceId, uMsg, fdwCommand, dwParam);
 
         if (wbuf) LocalFree(wbuf);
-        dprintf(L"Return=%s", mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
-        return ret;
+        break;
     }
     case MCI_INFO: {
         MCI_INFO_PARMSA* pA = (MCI_INFO_PARMSA*)dwParam;
         if (!pA) {
-            dprintf(L"Return=%s", mciGetErrorStringW(MCIERR_MISSING_PARAMETER, errText, 256) ? errText : L"Unknown error");
-            return MCIERR_MISSING_PARAMETER;
+            ret = MCIERR_MISSING_PARAMETER;
+            break;
         }
 
         MCI_INFO_PARMSW pW; ZeroMemory(&pW, sizeof(pW));
@@ -812,8 +804,8 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
         if (pA->lpstrReturn && pA->dwRetSize > 0) {
             wbuf = (LPWSTR)LocalAlloc(LMEM_FIXED, sizeof(WCHAR) * pA->dwRetSize);
             if (!wbuf) {
-                dprintf(L"Return=%s", mciGetErrorStringW(MCIERR_OUT_OF_MEMORY, errText, 256) ? errText : L"Unknown error");
-                return MCIERR_OUT_OF_MEMORY;
+                ret = MCIERR_OUT_OF_MEMORY;
+                break;
             }
             wbuf[0] = L'\0';
         }
@@ -827,8 +819,7 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
         else ret = mciSendCommandA(deviceId, uMsg, fdwCommand, dwParam);
 
         if (wbuf) LocalFree(wbuf);
-        dprintf(L"Return=%s", mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
-        return ret;
+        break;
     }
     // Others (PLAY/STOP/PAUSE/RESUME/SEEK/SET/STATUS etc.)
     // have no string pointers in their structs, so A/W layout is identical.
@@ -840,16 +831,12 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
     case MCI_SET:
     case MCI_STATUS:
     case MCI_CLOSE:
-        if (mciCommandHub(deviceId, uMsg, fdwCommand, dwParam, &ret)) {
-            dprintf(L"Return=%s", mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
-            return ret;
-        }
-    default: {
+        if (mciCommandHub(deviceId, uMsg, fdwCommand, dwParam, &ret)) { break; }
+    default:
         ret = mciSendCommandA(deviceId, uMsg, fdwCommand, dwParam);
-        dprintf(L"Return=%s", mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
-        return ret;
     }
-    }
+    dprintf(L"Return=%s", mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
+    return ret;
 }
 
 // mciSendStringW connection function
@@ -861,12 +848,9 @@ MCIERROR WINAPI mciSendStringWStubs(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UI
     dprintf(L"mciSendStringW lpstrCommand=%s lpstrReturn=0x%08X uReturnLength=%lu, hCallback=0x%08X", lpstrCommand, lpstrReturn, uReturnLength, hCallback);
     if (!mciStringHub(lpstrCommand, lpstrReturn, uReturnLength, hCallback, &ret)) {
         ret = mciSendStringW(lpstrCommand, lpstrReturn, uReturnLength, hCallback);
-        dprintf(L"lpstrReturn=%s\nReturn=%s", lpstrReturn, mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
 
     }
-    if (!mciStringHub(lpstrCommand, lpstrReturn, uReturnLength, hCallback, &ret)) {
-        return mciSendStringW(lpstrCommand, lpstrReturn, uReturnLength, hCallback);
-    }
+    dprintf(L"lpstrReturn=%s\nReturn=%s", lpstrReturn, mciGetErrorStringW(ret, errText, 256) ? errText : L"Unknown error");
     return ret;
 }
 
@@ -885,10 +869,8 @@ MCIERROR WINAPI mciSendStringAStubs(LPCSTR lpstrCommand, LPSTR lpstrReturn, UINT
 
     if (!mciStringHub(wCmd, (lpstrReturn ? wRet : NULL), (lpstrReturn ? ARRAYSIZE(wRet) : 0), hCallback, &ret)) {
         ret = mciSendStringA(lpstrCommand, lpstrReturn, uReturnLength, hCallback);
-        dprintf("lpstrReturn=%s\nReturn=%s", lpstrReturn, mciGetErrorStringA(ret, errText, 256) ? errText : "Unknown error");
-        return ret;
     }
-    if (lpstrReturn && uReturnLength > 0) {
+    else if (lpstrReturn && uReturnLength > 0) {
         if (wRet[0]) { WideCharToMultiByte(CP_ACP, 0, wRet, -1, lpstrReturn, uReturnLength, NULL, NULL); }
         else { lpstrReturn[0] = '\0'; }
     }
