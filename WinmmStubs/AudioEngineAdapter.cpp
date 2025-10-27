@@ -70,10 +70,12 @@ namespace {
     // MCICDA compatibility state cache
     static BOOL  gEverPlayed = FALSE; // Has playback ever started
     static int   gStatusTrack = 1;    // Current track number for status query
-    static DWORD gStatusPosMs = 0;    // Current position (ms) for status query
-    static BOOL  gAtEnd = FALSE;      // Has non-looping playback finished
+    static BOOL  gBufferEmpty = FALSE; // Has non-looping playback finished
     static std::wstring gPathFormat = L"music\\Track%02d"; // Default path format base
-    static BOOL gPathFormatDetected = FALSE;        // Flag to run detection only once
+    static BOOL  gPathFormatDetected = FALSE;              // Flag to run detection only once
+    static DWORD gRangeStartMs = 0;   // The absolute start Ms of the first segment
+    static DWORD gRangeTotalMs = 0;   // The total duration of the current range
+    static DWORD gLatency = 0;        // Engine buffer latency (ms)
 
     // --- General Utilities ---
 
@@ -548,7 +550,6 @@ namespace {
         gSegCount = 0; gSegIndex = 0; gSegCursor = 0;
         gDecCur.Close(); gDecCurTrack = -1;
         ZeroMemory(&gFmt, sizeof(gFmt)); gFmtInit = FALSE;
-        gAtEnd = FALSE;
 
         if (toTrack < fromTrack) return FALSE;
 
@@ -629,8 +630,6 @@ namespace {
 
         // Status before play (start of first segment)
         gStatusTrack = gSegs[0].track;
-        gStatusPosMs = FramesToMs(gSegs[0].startFrame, gFmt);
-        gAtEnd = FALSE;
         return TRUE;
     }
 
@@ -641,7 +640,6 @@ namespace {
             if (!gDecCur.SeekFrames(s.startFrame)) return FALSE;
             gSegCursor = 0;
             gStatusTrack = s.track;
-            gStatusPosMs = FramesToMs(s.startFrame, gFmt);
             return TRUE;
         }
         // Open new track
@@ -655,7 +653,6 @@ namespace {
 
         gDecCurTrack = s.track; gSegCursor = 0;
         gStatusTrack = s.track;
-        gStatusPosMs = FramesToMs(s.startFrame, gFmt);
         return TRUE;
     }
 
@@ -673,7 +670,6 @@ namespace {
         if (!gFmtInit || gSegCount <= 0) { ZeroMemory(out, frames * 2 * sizeof(short)); return frames; }
         const DWORD ch = gFmt.channels ? gFmt.channels : 2;
         DWORD filled = 0;
-        gAtEnd = FALSE;
 
         while (filled < frames) {
             if (gSegIndex < 0 || gSegIndex >= gSegCount) {
@@ -686,8 +682,7 @@ namespace {
                     // MCICDA compatibility: At end, report last track / 0ms
                     const Segment& last = gSegs[gSegCount - 1];
                     gStatusTrack = last.track;
-                    gStatusPosMs = 0;
-                    gAtEnd = TRUE;
+                    gBufferEmpty = TRUE;
                     ZeroMemory(out + filled * ch, (frames - filled) * ch * sizeof(short));
                     return frames;
                 }
@@ -699,7 +694,6 @@ namespace {
             if (!segRemain) {
                 // Current segment finished
                 if (!AdvanceSegment()) {
-                    gAtEnd = TRUE; // Reached end, stop filling
                     ZeroMemory(out + filled * ch, (frames - filled) * ch * sizeof(short));
                     return frames;
                 }
@@ -712,7 +706,6 @@ namespace {
             if (!got) {
                 // Read failed (EOF), advance segment
                 if (!AdvanceSegment()) {
-                    gAtEnd = TRUE; // Reached end, stop filling
                     ZeroMemory(out + filled * ch, (frames - filled) * ch * sizeof(short));
                     return frames;
                 }
@@ -725,14 +718,6 @@ namespace {
             // Update status during playback
             DWORD trackFrame = s.startFrame + gSegCursor;
             gStatusTrack = s.track;
-            gStatusPosMs = FramesToMs(trackFrame, gFmt);
-
-            if (gSegCursor >= (s.endFrame - s.startFrame)) {
-                // Reached end of segment, advance
-                if (!AdvanceSegment()) {
-                    gAtEnd = TRUE; // Will be handled by loop/EOF check next iteration
-                }
-            }
         }
 
         // This should only be hit if the loop was broken
@@ -756,8 +741,6 @@ namespace AudioEngine {
         // MCICDA compatibility: Initial (pre-play) state is Track=1, Pos=0
         gEverPlayed = FALSE;
         gStatusTrack = 1;
-        gStatusPosMs = 0;
-        gAtEnd = FALSE;
 
         // Apply cached volume to the engine
         ApplyVolumeSettings();
@@ -782,8 +765,6 @@ namespace AudioEngine {
         // Reset to MCICDA initial state
         gEverPlayed = FALSE;
         gStatusTrack = 1;
-        gStatusPosMs = 0;
-        gAtEnd = FALSE;
 
         gCurTrack = -1;
         gInited = FALSE;
@@ -826,16 +807,21 @@ namespace AudioEngine {
 
 #ifdef AE_USE_FULLBUFFER
         if (!BuildFullBuffer(fromTrack, fromMs, toTrack, toMs)) return FALSE;
-        gEverPlayed = TRUE;
-        gAtEnd = FALSE;
+        // Store actual start time and total duration
+        gRangeStartMs = (gFullSegCount > 0) ? FramesToMs(gFullSegs[0].trackStartFrame, gFmt) : 0;
+        gRangeTotalMs = FramesToMs(gFrames, gFmt); // Total frames in buffer
         if (!Engine_Play(gFmt.sampleRate, gFmt.channels, gLoop, FillFromMemory)) return FALSE;
 #else
         if (!BuildSegments(fromTrack, fromMs, toTrack, toMs)) return FALSE;
+        // Store actual start time and total duration
+        gRangeStartMs = (gSegCount > 0) ? FramesToMs(gSegs[0].startFrame, gFmt) : 0;
+        if (!CountRangeLengthMs(fromTrack, fromMs, toTrack, toMs, &gRangeTotalMs)) {
+            gRangeTotalMs = 0;
+        }
         if (!OpenDecoderAtSegment(gSegs[0])) return FALSE;
-        gEverPlayed = TRUE;
-        gAtEnd = FALSE;
         if (!Engine_Play(gFmt.sampleRate, gFmt.channels, gLoop, FillFromStream)) return FALSE;
 #endif
+        gEverPlayed = TRUE;
 
         // Re-apply cached volume/mute state after starting playback
         ApplyVolumeSettings();
@@ -886,8 +872,7 @@ namespace AudioEngine {
     }
 
     BOOL  IsPlaying() {
-        // ~gAtEnd ensures IsPlaying() returns false when non-looping playback finishes
-        return ~gAtEnd & Engine_IsPlaying();
+        return !HasReachedEnd() && Engine_IsPlaying();
     }
     BOOL  IsPaused() { return Engine_IsPaused(); }
 
@@ -899,18 +884,40 @@ namespace AudioEngine {
     BOOL  SeekTrack(int track) {
         return (1 <= track <= 99) ? gStatusTrack = track : FALSE;
     }
+
     DWORD CurrentPositionMs() {
-        // MCICDA rule: 0 before ever played
         if (!gEverPlayed) return 0;
-        return gStatusPosMs;
+
+        // Use HasReachedEnd, which is now accurate
+        if (HasReachedEnd()) {
+            // MCI rule: 0 at end
+            return 0;
+        }
+
+        // Calculate absolute position:
+        // Start of the first segment + total elapsed time from engine
+        DWORD elapsedMs = Engine_PosMs();
+        DWORD absoluteMs = gRangeStartMs + elapsedMs;
+
+        // Note: This simple addition may not account for gaps (missing tracks)
+        // in a multi-track range. A more complex fix would iterate segments.
+        // However, this correctly reports the position relative to the *start*
+        // of playback, fixing the latency bug.
+
+        // For simple playback, we can just return elapsedMs relative to the start
+        // of the *first track played*.
+        dprintf("absoluteMs=%d, elapsedMs=%d, gRangeStartMs + elapsedMs=%d", absoluteMs, elapsedMs, (gRangeStartMs + elapsedMs));
+        return absoluteMs;
     }
 
     UINT  CurrentSampleRate() { return Engine_SR(); }
     UINT  CurrentChannels() { return Engine_CH(); }
 
     BOOL HasReachedEnd() {
-        // If Fill callback finishes a non-looping stream, gAtEnd is set to TRUE
-        return gAtEnd;
+        if (gLoop || !gEverPlayed || gRangeTotalMs == 0) return FALSE;
+
+        DWORD elapsedMs = Engine_PosMs();
+        return (elapsedMs >= gRangeTotalMs);
     }
 
     BOOL GetDiscNumTracks(int* outCount) {

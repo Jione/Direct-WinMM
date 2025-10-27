@@ -324,13 +324,12 @@ BOOL WasapiAudioEngine::IsPaused() const { return (paused == 1); }
 DWORD WasapiAudioEngine::GetPositionMs() const {
     if (!clock || wfx.nSamplesPerSec == 0 || bufferFrameCount == 0) return 0;
 
-    UINT64 posFrames = 0;
+    UINT64 posFrames = 0, freq = 0;
     // GetPosition returns *total frames played* since stream start
-    if (FAILED(clock->GetPosition(&posFrames, NULL))) return 0;
+    if ((FAILED(clock->GetPosition(&posFrames, NULL))) || (FAILED(clock->GetFrequency(&freq)))) return 0;
 
-    // Calculate position *within* the buffer
-    UINT32 framesInBuf = (UINT32)(posFrames % (UINT64)bufferFrameCount);
-    DWORD ms = (DWORD)((framesInBuf * 1000) / wfx.nSamplesPerSec);
+    // Calculate position total time played
+    DWORD ms = (DWORD)((posFrames * 1000ULL) / freq);
     return ms;
 }
 

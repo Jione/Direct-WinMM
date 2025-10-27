@@ -28,6 +28,7 @@ struct ParsedString {
     // Default device/alias
     WCHAR device[64]{ 0, };   // "cdaudio" or alias
     WCHAR alias[64]{ 0, };    // open alias x
+    WCHAR path[64]{ 0, };    // open path type cdaudio alias x
 
     // Common parameters
     DWORD fdwCommand = 0;
@@ -36,7 +37,7 @@ struct ParsedString {
 
     // MCI_PLAY
     int   fromTrack = 0;    DWORD fromMs = 0;
-    int   toTrack = 0;    DWORD toMs = 0;
+    int   toTrack = 99;     DWORD toMs = 0xFFFFFFFF;
 
     // MCI_SET, MCI_STATUS
     DWORD item = 0;
@@ -66,7 +67,7 @@ static void CopyWtoA(LPCWSTR w, LPSTR a, UINT aCap) {
 static BOOL ParseTimeToken(const WCHAR* tok, DWORD* outMs) {
     if (!tok || !outMs) return FALSE;
     const WCHAR* p1 = wcschr(tok, L':');
-    if (!p1) { *outMs = (DWORD)wcstol(tok, NULL, 10); return TRUE; } // milliseconds number
+    if (!p1) { *outMs = (DWORD)wcstol(tok, NULL, 10); return FALSE; } // milliseconds number
     // mm:ss[:ff]
     int mm = (int)wcstol(tok, NULL, 10);
     int ss = (int)wcstol(p1 + 1, NULL, 10);
@@ -310,15 +311,16 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 if (cmd == CMD_OPEN) {
                     pStr.fdwCommand |= MCI_OPEN_ALIAS;
                 }
-                else if (!DeviceInfo::FindByAlias(pStr.alias))
+                else if (!DeviceInfo::FindByAlias(pStr.alias)) {
                     return FALSE;
+                }
             }
         }
         else if (IsWordEq(token, L"type")) {
             w = wcstok(NULL, L" \t\r\n", &checkText);
             if (w) {
                 lstrcpynW(pStr.device, w, 64);
-                if (!IsWordEq(token, L"cdaudio"))
+                if (!IsWordEq(w, L"cdaudio"))
                     return FALSE;
             }
         }
@@ -334,13 +336,17 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                     // "from track N"
                     w = wcstok(NULL, L" \t\r\n", &checkText);
                     if (w) {
+                        pStr.fdwCommand |= MCI_TRACK;
                         pStr.fromMs = 0;
                         pStr.fromTrack = ToInt(w);
                     }
                 }
                 else {
                     // "from [time]"
-                    ParseTimeToken(w, &pStr.fromMs);
+                    if (!ParseTimeToken(w, &pStr.fromMs)) {
+                        pStr.fromMs = 0;
+                        pStr.fdwCommand |= MCI_TRACK;
+                    }
                     pStr.fromTrack = ToInt(w); // For TMSF
                 }
             }
@@ -358,13 +364,17 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                         // "to track N"
                         w = wcstok(NULL, L" \t\r\n", &checkText);
                         if (w) {
+                            pStr.fdwCommand |= MCI_TRACK;
                             pStr.toMs = 0;
                             pStr.toTrack = ToInt(w);
                         }
                     }
                     else {
                         // "to [time]"
-                        ParseTimeToken(w, &pStr.toMs);
+                        if (!ParseTimeToken(w, &pStr.toMs)) {
+                            pStr.toMs = 0;
+                            pStr.fdwCommand |= MCI_TRACK;
+                        }
                         pStr.toTrack = ToInt(w); // For TMSF
                     }
                 }
@@ -377,7 +387,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             if (w) pStr.track = ToInt(w);
         }
         else if (cmd < CMD_SET) {
-            if (!pStr.device[0]) { lstrcpynW(pStr.device, token, 64); } // First token: usually device/alias
+            if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); } // First token: usually device/alias
             continue;
         }
 
@@ -403,7 +413,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 pStr.item = MCI_STATUS_MODE;
             else if (IsWordEq(token, L"present") || IsWordEq(token, L"media_present"))
                 pStr.item = MCI_STATUS_MEDIA_PRESENT;
-            else if (!pStr.device[0]) { lstrcpynW(pStr.device, token, 64); }
+            else if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); }
         }
 
         // MCI_SET
@@ -450,7 +460,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 else if (IsWordEq(w, L"closed"))
                     pStr.fdwCommand |= MCI_SET_DOOR_CLOSED;
             }
-            else if (!pStr.device[0]) { lstrcpynW(pStr.device, token, 64); }
+            else if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); }
         }
 
         // MCI_INFO
@@ -463,7 +473,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 pStr.fdwCommand |= MCI_INFO_MEDIA_UPC;
             else if (IsWordEq(token, L"identity"))
                 pStr.fdwCommand |= MCI_INFO_MEDIA_IDENTITY;
-            else if (!pStr.device[0]) { lstrcpynW(pStr.device, token, 64); }
+            else if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); }
         }
 
         // MCI_SYSINFO
@@ -476,16 +486,23 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 pStr.fdwCommand |= MCI_SYSINFO_OPEN;
             else if (IsWordEq(token, L"name"))
                 pStr.fdwCommand |= MCI_SYSINFO_NAME;
-            else if (!pStr.device[0]) { lstrcpynW(pStr.device, token, 64); }
+            else if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); }
         }
     }
 
     // If device name is not cdaudio and alias is empty, relay to original
     // FIX: Modify search criteria for CD Audio or alias.
-    if (!IsWordEq(pStr.device, L"cdaudio") && !pStr.alias[0]) {
-        if (!DeviceInfo::FindByAlias(pStr.device)) return FALSE;
-        else lstrcpynW(pStr.alias, pStr.device, 64);
+    if (IsWordEq(pStr.path, L"cdaudio")){
+        lstrcpynW(pStr.device, pStr.path, 64);
     }
+    else if (DeviceInfo::FindByAlias(pStr.path)) {
+        lstrcpynW(pStr.alias, pStr.path, 64);
+        lstrcpynW(pStr.device, L"cdaudio", 64);
+    }
+    else if (pStr.alias[0] && DeviceInfo::FindByAlias(pStr.alias)) {
+        lstrcpynW(pStr.device, L"cdaudio", 64);
+    }
+    if (!IsWordEq(pStr.device, L"cdaudio")) { return FALSE; }
 
     // If MCI_OPEN, create new device or call existing
     DeviceContext* ctx;
@@ -564,6 +581,10 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
         case CMD_PLAY: {
             MCI_PLAY_PARMS dwParam{ 0, };
             dwParam.dwCallback = (DWORD_PTR)hCallback;
+            UINT tf = ctx->timeFormat;
+            if (pStr.fdwCommand & MCI_TRACK) {
+                ctx->timeFormat = MCI_FORMAT_TMSF;
+            }
             if (pStr.fdwCommand & MCI_FROM) {
                 dwParam.dwFrom = PackStringTime(ctx->timeFormat, pStr.fromMs, pStr.fromTrack);
             }
@@ -572,6 +593,10 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             }
 
             *ret = Device::Play(ctx, pStr.fdwCommand, (DWORD_PTR)&dwParam);
+
+            if (pStr.fdwCommand & MCI_TRACK) {
+                ctx->timeFormat = tf;
+            }
             break;
         }
         case CMD_STOP: { *ret = Device::Stop(ctx, pStr.fdwCommand, NULL); break; }
@@ -661,7 +686,6 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             dwParam.wDeviceType = MCI_DEVTYPE_CD_AUDIO; // Assume cdaudio for all string sysinfo
             if (pStr.fdwCommand & (MCI_SYSINFO_NAME | MCI_SYSINFO_OPEN)) {
                 // The parser is flawed, 'name cdaudio 1' isn't parsed right.
-                // We'll just assume #1.
                 dwParam.dwNumber = 1;
             }
 
@@ -688,7 +712,7 @@ MCIERROR WINAPI mciSendCommandWStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD_PTR 
 #ifdef _DEBUG
     wchar_t errText[256]{ 0, };
 #endif
-    dprintf(L"mciSendCommandW deviceId=0x%04X uMsg=0x%04X fdwCommand=0x%08X, dwParam=0x%08X", deviceId, uMsg, fdwCommand, dwParam);
+    dprintf(L"mciSendCommandW deviceId=0x%04X uMsg=0x%04X fdwCommand=0x%08X dwParam=0x%08X", deviceId, uMsg, fdwCommand, dwParam);
     if (!mciCommandHub(deviceId, uMsg, fdwCommand, dwParam, &ret)) {
         ret = mciSendCommandW(deviceId, uMsg, fdwCommand, dwParam);
     }
@@ -709,7 +733,7 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
 #ifdef _DEBUG
     wchar_t errText[256]{ 0, };
 #endif
-    dprintf(L"mciSendCommandW deviceId=0x%04X uMsg=0x%04X fdwCommand=0x%08X, dwParam=0x%08X", deviceId, uMsg, fdwCommand, dwParam);
+    dprintf(L"mciSendCommandW deviceId=0x%04X uMsg=0x%04X fdwCommand=0x%08X dwParam=0x%08X", deviceId, uMsg, fdwCommand, dwParam);
 
     switch (uMsg) {
     case MCI_OPEN: {
@@ -845,7 +869,7 @@ MCIERROR WINAPI mciSendStringWStubs(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UI
 #ifdef _DEBUG
     wchar_t errText[256]{ 0, };
 #endif
-    dprintf(L"mciSendStringW lpstrCommand=%s lpstrReturn=0x%08X uReturnLength=%lu, hCallback=0x%08X", lpstrCommand, lpstrReturn, uReturnLength, hCallback);
+    dprintf(L"mciSendStringW lpstrCommand=%s lpstrReturn=0x%08X uReturnLength=%lu hCallback=0x%08X", lpstrCommand, lpstrReturn, uReturnLength, hCallback);
     if (!mciStringHub(lpstrCommand, lpstrReturn, uReturnLength, hCallback, &ret)) {
         ret = mciSendStringW(lpstrCommand, lpstrReturn, uReturnLength, hCallback);
 
@@ -861,7 +885,7 @@ MCIERROR WINAPI mciSendStringAStubs(LPCSTR lpstrCommand, LPSTR lpstrReturn, UINT
     char errText[256]{ 0, };
 #endif
 
-    dprintf("mciSendStringA lpstrCommand=%s lpstrReturn=0x%08X uReturnLength=%lu, hCallback=0x%08X", lpstrCommand, lpstrReturn, uReturnLength, hCallback);
+    dprintf("mciSendStringA lpstrCommand=%s lpstrReturn=0x%08X uReturnLength=%lu hCallback=0x%08X", lpstrCommand, lpstrReturn, uReturnLength, hCallback);
 
     WCHAR wCmd[1024]; wCmd[0] = 0;
     WCHAR wRet[1024]; wRet[0] = 0;

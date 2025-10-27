@@ -69,7 +69,9 @@ private:
     DWORD               bufferBytes; // Total size of the secondary buffer
     DWORD               halfBytes; // Half size (for double buffering)
     DWORD               blockBytes; // Write unit (safe block)
-    DWORD               writeCursor; // The offset where we will write next
+    DWORD               writeCursor; // The offset where write next
+    DWORD               lastPlayCursor;
+    ULONGLONG           totalBytesPlayed;
 
     // User Callback
     PcmFillProc         fill;

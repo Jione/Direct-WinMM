@@ -184,7 +184,7 @@ DWORD AudioDecoder::ReadFramesWav(short* outPCM, DWORD frames) {
     // If 16-bit, read directly into the *start*
     void* readBuffer = outPCM;
     if (srcBps == 8) {
-        // We read into the end of the buffer to convert in-place backwards
+        // read into the end of the buffer to convert in-place backwards
         readBuffer = (BYTE*)outPCM + (frames * ch * 2) - toRead;
     }
 
@@ -197,7 +197,7 @@ DWORD AudioDecoder::ReadFramesWav(short* outPCM, DWORD frames) {
     }
     else {
         // Convert 8-bit unsigned -> 16-bit signed
-        // We read into the end, so now we convert backwards
+        // read into the end, so now convert backwards
         BYTE* pSrc = (BYTE*)readBuffer;
         short* pDest = outPCM;
         DWORD samples = read; // For 8-bit, bytes == samples

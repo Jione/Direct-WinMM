@@ -51,7 +51,8 @@ DSoundAudioEngine::DSoundAudioEngine()
     fill(NULL), user(NULL), loop(FALSE),
     volume01(1.0f), subVolL(1.0f), subVolR(1.0f),
     muteL(FALSE), muteR(FALSE),
-    approxMs(0), samplerate(0), channels(0), hwnd(NULL)
+    approxMs(0), samplerate(0), channels(0), hwnd(NULL),
+    lastPlayCursor(0), totalBytesPlayed(0)
 {
     ZeroMemory(&wfx, sizeof(wfx));
 }
@@ -85,8 +86,8 @@ void DSoundAudioEngine::Shutdown() {
     ResetState();
 }
 void DSoundAudioEngine::ResetState() {
-    volume01 = 1.0f; approxMs = 0;
-    samplerate = 0; channels = 0;
+    volume01 = 1.0f; samplerate = 0; channels = 0;
+    lastPlayCursor = 0; totalBytesPlayed = 0;
     ZeroMemory(&wfx, sizeof(wfx));
 }
 
@@ -187,12 +188,14 @@ void DSoundAudioEngine::ThreadLoop() {
     FillInitial();
     if (secondary) secondary->Play(0, 0, DSBPLAY_LOOPING);
 
-    DWORD lastTick = timeGetTime();
     for (;;) {
         DWORD wr = WaitForSingleObject(stopEvent, 10);
         if (wr == WAIT_OBJECT_0) break;
 
         if (paused) {
+            if (secondary) {
+                secondary->GetCurrentPosition(&lastPlayCursor, NULL);
+            }
             Sleep(10);
             continue;
         }
@@ -200,10 +203,22 @@ void DSoundAudioEngine::ThreadLoop() {
         RefillIfNeeded();
 
         // Accumulate approximate ms (fallback)
-        DWORD now = timeGetTime();
-        DWORD dt = (now >= lastTick) ? (now - lastTick) : 0;
-        lastTick = now;
-        approxMs += dt;
+        if (secondary && wfx.nAvgBytesPerSec > 0) {
+            DWORD playCursor = 0;
+            if (SUCCEEDED(secondary->GetCurrentPosition(&playCursor, NULL))) {
+
+                DWORD bytesPlayedThisTick = 0;
+                if (playCursor < lastPlayCursor) {
+                    bytesPlayedThisTick = (bufferBytes - lastPlayCursor) + playCursor;
+                }
+                else {
+                    bytesPlayedThisTick = playCursor - lastPlayCursor;
+                }
+
+                totalBytesPlayed += (ULONGLONG)bytesPlayedThisTick;
+                lastPlayCursor = playCursor;
+            }
+        }
     }
 
     if (secondary) secondary->Stop();
@@ -295,7 +310,9 @@ BOOL DSoundAudioEngine::PlayStream(UINT sampleRate, UINT channels, PcmFillProc f
     if (!CreateSecondary(sampleRate, channels)) {
         fill = NULL; user = NULL; return FALSE;
     }
-    approxMs = 0;
+    
+    totalBytesPlayed = 0;
+    lastPlayCursor = 0;
 
     if (!StartThread()) {
         DestroySecondary();
@@ -398,12 +415,8 @@ BOOL DSoundAudioEngine::IsPaused() const { return (paused == 1); }
 
 DWORD DSoundAudioEngine::GetPositionMs() const {
     if (!secondary || wfx.nSamplesPerSec == 0 || wfx.nBlockAlign == 0) return 0;
-    DWORD play = 0, write = 0;
-    if (FAILED(secondary->GetCurrentPosition(&play, &write))) return approxMs;
-    // play bytes -> frames -> estimate ms
-    DWORD frames = play / wfx.nBlockAlign;
-    DWORD ms = (frames * 1000) / (wfx.nSamplesPerSec);
-    return ms;
+    dprintf("total time=%d", (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec));
+    return (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec);
 }
 UINT  DSoundAudioEngine::CurrentSampleRate() const { return samplerate; }
 UINT  DSoundAudioEngine::CurrentChannels()   const { return channels; }

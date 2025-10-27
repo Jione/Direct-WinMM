@@ -353,7 +353,7 @@ namespace Device {
         }
         case MCI_STATUS_MODE: {
             // dwReturn holds an integer constant (not a string)
-            BOOL isPlaying = AudioEngine::IsPlaying();
+            BOOL isPlaying = !AudioEngine::HasReachedEnd() || AudioEngine::IsPlaying();
             BOOL isPaused = AudioEngine::IsPaused();
             if (isPlaying) {
                 p->dwReturn = MCI_MODE_PLAY;
@@ -430,7 +430,7 @@ namespace Device {
         if (fdw & MCI_SYSINFO_QUANTITY) {
             // Requesting the number of devices of a certain type.
             if (p->wDeviceType == MCI_DEVTYPE_CD_AUDIO) {
-                // We are simulating one (1) CD audio device
+                // simulating one (1) CD audio device
                 lstrcpynW(p->lpstrReturn, L"1", p->dwRetSize);
             }
             else {
