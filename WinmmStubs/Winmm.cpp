@@ -222,7 +222,7 @@ BOOL WINAPI mciCommandHub(MCIDEVICEID deviceId, UINT uMsg, DWORD_PTR fdwCommand,
 
                 ctx = DeviceInfo::FindByDeviceID(newId);
                 ctx->isCDA = TRUE;
-                ctx->timeFormat = MCI_FORMAT_TMSF;
+                ctx->timeFormat = MCI_FORMAT_TMSF;  // Time format of the unique device is assumed to be tmsf.
                 isUnique = TRUE;
             }
         }
@@ -481,8 +481,10 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
     }
 
     // If device name is not cdaudio and alias is empty, relay to original
-    if (!IsWordEq(pStr.device, L"cdaudio") && !pStr.alias[0] && !DeviceInfo::FindByAlias(pStr.device)) {
-        return FALSE;
+    // FIX: Modify search criteria for CD Audio or alias.
+    if (!IsWordEq(pStr.device, L"cdaudio") && !pStr.alias[0]) {
+        if (!DeviceInfo::FindByAlias(pStr.device)) return FALSE;
+        else lstrcpynW(pStr.alias, pStr.device, 64);
     }
 
     // If MCI_OPEN, create new device or call existing
@@ -550,7 +552,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
 
             ctx = DeviceInfo::FindByDeviceID(newId);
             ctx->isCDA = TRUE;
-            ctx->timeFormat = MCI_FORMAT_TMSF;
+            ctx->timeFormat = MCI_FORMAT_TMSF; // Time format of the unique device is assumed to be tmsf.
         }
 
         // Update callback hwnd
