@@ -139,6 +139,7 @@ namespace Device {
     }
 
     MMRESULT Play(DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam) {
+        if (!ctx || !ctx->isOpen) return MCIERR_DEVICE_NOT_READY;
         // Get callback handle
         HWND cb = NULL;
 
@@ -176,6 +177,7 @@ namespace Device {
     }
 
     MMRESULT Stop(DeviceContext* ctx, DWORD fdw, DWORD_PTR) {
+        if (!ctx || !ctx->isOpen) return MCIERR_DEVICE_NOT_READY;
         NotifyManager::UnregisterPlaybackNotify(ctx->deviceId);
         AudioEngine::StopAll();
         if (fdw & MCI_NOTIFY) {
@@ -185,6 +187,7 @@ namespace Device {
     }
 
     MMRESULT Pause(DeviceContext* ctx, DWORD fdw, DWORD_PTR) {
+        if (!ctx || !ctx->isOpen) return MCIERR_DEVICE_NOT_READY;
         NotifyManager::UnregisterPlaybackNotify(ctx->deviceId);
         AudioEngine::Pause();
         if (fdw & MCI_NOTIFY) {
@@ -194,6 +197,7 @@ namespace Device {
     }
 
     MMRESULT Resume(DeviceContext* ctx, DWORD fdw, DWORD_PTR) {
+        if (!ctx || !ctx->isOpen) return MCIERR_DEVICE_NOT_READY;
         NotifyManager::UnregisterPlaybackNotify(ctx->deviceId);
         AudioEngine::Resume();
         if (fdw & MCI_NOTIFY) {
@@ -202,9 +206,27 @@ namespace Device {
         return MMSYSERR_NOERROR;
     }
 
+    // ADD: Added MCI_SEEK behavior emulation
     MMRESULT Seek(DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam) {
+        if (!ctx || !ctx->isOpen) return MCIERR_DEVICE_NOT_READY;
+        UINT tf = DeviceInfo::GetDeviceTimeFormat(ctx->deviceId);
+        int tr;
+
+        if (fdw & MCI_SEEK_TO_START) tr = 1;
+        else if (fdw & MCI_SEEK_TO_END) {
+            if (!AudioEngine::GetDiscNumTracks(&tr)) tr = 1;
+        }
+        else if (!dwParam) return MCIERR_MISSING_PARAMETER;
+        else if (tf == MCI_FORMAT_TMSF) {
+            MCI_SEEK_PARMS* p = (MCI_SEEK_PARMS*)dwParam;
+            tr = MCI_TMSF_TRACK(p->dwTo);
+            if (!(1 <= tr <= 99)) return MCIERR_BAD_INTEGER;
+        }
+        else tr = 0;
+
         NotifyManager::UnregisterPlaybackNotify(ctx->deviceId);
         AudioEngine::StopAll();
+        if (tr) AudioEngine::SeekTrack(tr);
         if (fdw & MCI_NOTIFY) {
             NotifyManager::LazyNotify(ctx->deviceId, ctx->notifyHwnd, MCI_NOTIFY_SUCCESSFUL);
         }
@@ -457,6 +479,7 @@ namespace Device {
     }
 
     MMRESULT Close(DeviceContext* ctx, DWORD fdw, DWORD_PTR) {
+        if (!ctx || !ctx->isOpen) return MCIERR_DEVICE_NOT_READY;
         NotifyManager::UnregisterPlaybackNotify(ctx->deviceId);
         AudioEngine::StopAll();
         if (fdw & MCI_NOTIFY) {

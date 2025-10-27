@@ -896,6 +896,9 @@ namespace AudioEngine {
         if (!gEverPlayed) return 1;
         return gStatusTrack;
     }
+    BOOL  SeekTrack(int track) {
+        return (1 <= track <= 99) ? gStatusTrack = track : FALSE;
+    }
     DWORD CurrentPositionMs() {
         // MCICDA rule: 0 before ever played
         if (!gEverPlayed) return 0;
