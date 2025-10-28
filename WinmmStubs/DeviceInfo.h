@@ -73,10 +73,10 @@ inline void SplitTMSF(DWORD tmsf, BYTE* t, BYTE* m, BYTE* s, BYTE* f) {
 
 // Time conversion milliseconds <-> redbook frame(1/75s)
 inline DWORD MillisecondsToFrames(DWORD ms) {
-    return (ms * 75 + 500) / 1000; // (1000ms / 75) -> 13.333... -> round
+    return static_cast<DWORD>((static_cast<UINT64>(ms) * 75 + 999) / 1000); // Always round up
 }
 inline DWORD FramesToMilliseconds(DWORD frames) {
-    return (frames * 1000 + 37) / 75; // 0.5 frame adjustment
+    return static_cast<DWORD>((static_cast<UINT64>(frames) * 1000 + 37) / 75); // 0.5 frame adjustment
 }
 
 namespace DeviceInfo {

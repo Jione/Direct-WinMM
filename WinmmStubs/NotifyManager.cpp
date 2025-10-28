@@ -268,11 +268,10 @@ namespace NotifyManager {
         SupersedeActiveJob(TRUE);
         LeaveCriticalSection(&gCs);
 
-        // Wait AudioEngine
-        Sleep(500);
+        Sleep(100);
 
         // Failed to start, return failure (no notify)
-        if (!AudioEngine::IsPlaying()) {
+        if (!AudioEngine::IsPlaying() && !AudioEngine::HasReachedEnd()) {
             return MCIERR_INTERNAL;
         }
 
@@ -286,8 +285,6 @@ namespace NotifyManager {
         if (hasNotify) {
             LazyNotify(devId, hwndCallback, MCI_NOTIFY_SUCCESSFUL);
         }
-
-        Sleep(200);
 
         return MMSYSERR_NOERROR; // Return success
     }

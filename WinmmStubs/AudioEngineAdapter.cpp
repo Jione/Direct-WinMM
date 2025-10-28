@@ -821,6 +821,7 @@ namespace AudioEngine {
         if (!OpenDecoderAtSegment(gSegs[0])) return FALSE;
         if (!Engine_Play(gFmt.sampleRate, gFmt.channels, gLoop, FillFromStream)) return FALSE;
 #endif
+        gRangeTotalMs = (gRangeTotalMs < 256) ? (gRangeTotalMs / 2) : (gRangeTotalMs - 128);
         gEverPlayed = TRUE;
 
         // Re-apply cached volume/mute state after starting playback
@@ -906,7 +907,6 @@ namespace AudioEngine {
 
         // For simple playback, we can just return elapsedMs relative to the start
         // of the *first track played*.
-        dprintf("absoluteMs=%d, elapsedMs=%d, gRangeStartMs + elapsedMs=%d", absoluteMs, elapsedMs, (gRangeStartMs + elapsedMs));
         return absoluteMs;
     }
 

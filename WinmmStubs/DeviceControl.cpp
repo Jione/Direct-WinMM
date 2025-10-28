@@ -339,11 +339,13 @@ namespace Device {
                 // Track start point: 0ms (track relative).
                 DWORD posMs = 0;
                 p->dwReturn = PackTime(tf, posMs, tr);
+                dprintf("MCI_STATUS_POSITION|MCI_TRACK Track=%d Time=%d", tr, posMs);
             }
             else {
                 int curTr = AudioEngine::CurrentTrack();
                 DWORD curMs = AudioEngine::CurrentPositionMs();
                 p->dwReturn = PackTime(tf, curMs, curTr);
+                dprintf("MCI_STATUS_POSITION Track=%d Time=%d", curTr, curMs);
             }
             break;
         }
@@ -353,15 +355,18 @@ namespace Device {
         }
         case MCI_STATUS_MODE: {
             // dwReturn holds an integer constant (not a string)
-            BOOL isPlaying = !AudioEngine::HasReachedEnd() || AudioEngine::IsPlaying();
+            BOOL isPlaying = AudioEngine::IsPlaying();
             BOOL isPaused = AudioEngine::IsPaused();
             if (isPlaying) {
+                dprintf("MCI_STATUS_MODE=isPlaying");
                 p->dwReturn = MCI_MODE_PLAY;
             }
             else if (isPaused) {
+                dprintf("MCI_STATUS_MODE=isPaused");
                 p->dwReturn = MCI_MODE_PAUSE; // Corrected from STOP
             }
             else {
+                dprintf("MCI_STATUS_MODE=isStop");
                 p->dwReturn = MCI_MODE_STOP;
             }
             break;

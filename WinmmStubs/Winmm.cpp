@@ -733,7 +733,7 @@ MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwC
 #ifdef _DEBUG
     wchar_t errText[256]{ 0, };
 #endif
-    dprintf(L"mciSendCommandW deviceId=0x%04X uMsg=0x%04X fdwCommand=0x%08X dwParam=0x%08X", deviceId, uMsg, fdwCommand, dwParam);
+    dprintf(L"mciSendCommandA deviceId=0x%04X uMsg=0x%04X fdwCommand=0x%08X dwParam=0x%08X", deviceId, uMsg, fdwCommand, dwParam);
 
     switch (uMsg) {
     case MCI_OPEN: {
