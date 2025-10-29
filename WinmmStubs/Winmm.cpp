@@ -24,27 +24,6 @@ enum MCI_COMMANDS {
     CMD_SYSINFO,
     CMD_UNKNOWN,
 };
-struct ParsedString {
-    // Default device/alias
-    WCHAR device[64]{ 0, };   // "cdaudio" or alias
-    WCHAR alias[64]{ 0, };    // open alias x
-    WCHAR path[64]{ 0, };    // open path type cdaudio alias x
-
-    // Common parameters
-    DWORD fdwCommand = 0;
-    BOOL  notify = FALSE;
-    BOOL  wait = FALSE;
-
-    // MCI_PLAY
-    int   fromTrack = 0;    DWORD fromMs = 0;
-    int   toTrack = 99;     DWORD toMs = 0xFFFFFFFF;
-
-    // MCI_SET, MCI_STATUS
-    DWORD item = 0;
-    int   track = 0;
-    DWORD audio = 0;
-    DWORD timeFormat = 0;
-};
 
 // Helper to ASCII <-> Unicode conversion
 static LPWSTR DupAtoW(LPCSTR s) {
@@ -63,41 +42,95 @@ static void CopyWtoA(LPCWSTR w, LPSTR a, UINT aCap) {
     a[aCap - 1] = '\0';
 }
 
-// Helper to String Token Parsing
-static BOOL ParseTimeToken(const WCHAR* tok, DWORD* outMs) {
-    if (!tok || !outMs) return FALSE;
-    const WCHAR* p1 = wcschr(tok, L':');
-    if (!p1) { *outMs = (DWORD)wcstol(tok, NULL, 10); return FALSE; } // milliseconds number
-    // mm:ss[:ff]
-    int mm = (int)wcstol(tok, NULL, 10);
-    int ss = (int)wcstol(p1 + 1, NULL, 10);
-    const WCHAR* p2 = wcschr(p1 + 1, L':');
-    int ff = 0;
-    if (p2) ff = (int)wcstol(p2 + 1, NULL, 10);
-    DWORD frames = (DWORD)(mm * 60 * 75 + ss * 75 + ff);
-    *outMs = FramesToMilliseconds(frames);
-    return TRUE;
-}
+// Helper for case-insensitive string comparison.
 static BOOL IsWordEq(const WCHAR* a, const WCHAR* b) { return (lstrcmpiW(a, b) == 0); }
-static int  ToInt(const WCHAR* s) { if (!s) return 0; return (int)wcstol(s, NULL, 10); }
 
-// Helper to pack parsed time/track into a DWORD for MCI structures
-static DWORD PackStringTime(UINT tf, DWORD ms, int track) {
-    if (tf == MCI_FORMAT_MILLISECONDS) return ms;
+// Quote-aware tokenizer (e.g., open "my file.wav" alias foo).
+static WCHAR* GetNextToken(WCHAR** ppString) {
+    if (!ppString || !*ppString) return NULL;
 
-    DWORD frames = MillisecondsToFrames(ms);
-    BYTE mm = (BYTE)(frames / (75 * 60));
-    frames %= (75 * 60);
-    BYTE ss = (BYTE)(frames / 75);
-    BYTE ff = (BYTE)(frames % 75);
+    WCHAR* p = *ppString;
+    BOOL inQuote = FALSE;
 
-    if (tf == MCI_FORMAT_MSF) {
-        return MakeMSF(mm, ss, ff);
+    // Skip leading whitespace
+    while (*p && iswspace(*p)) p++;
+    if (*p == L'\0') {
+        *ppString = p;
+        return NULL;
     }
-    else { // TMSF
-        BYTE tr = (BYTE)((track > 0 && track <= 99) ? track : 1);
-        return MakeTMSF(tr, mm, ss, ff);
+
+    WCHAR* tokenStart = p;
+
+    // Find end of token
+    while (*p) {
+        if (*p == L'"') { inQuote = !inQuote; }
+        else if (iswspace(*p) && !inQuote) { break; }
+        p++;
     }
+
+    if (*p) {
+        *p = L'\0'; // Terminate token
+        *ppString = p + 1; // Save next start position
+    }
+    else { *ppString = p; } // End of string
+
+    // Trim quotes
+    if (*tokenStart == L'"' && *(p - 1) == L'"') {
+        tokenStart++;
+        *(p - 1) = L'\0';
+    }
+
+    return tokenStart;
+}
+
+// Parses an MCI integer or a "Colonized" time string (e.g., mm:ss:ff) into a DWORD.
+// "1:10:30" (MSF) -> 0x1E0A01 (30 frames, 10 sec, 1 min)
+static BOOL ParseMciInteger(const WCHAR* tok, DWORD* outValue) {
+    if (!tok || !outValue) return FALSE;
+
+    *outValue = 0;
+    DWORD dwResult = 0;
+    DWORD Shift = 0;
+    BOOL fDigitFound = FALSE;
+    const WCHAR* p = tok;
+
+    // Check for simple integer/ms (no colons)
+    if (wcschr(tok, L':') == NULL) {
+        // Parse as a standard integer (handles negatives)
+        WCHAR* endPtr;
+        *outValue = (DWORD)wcstol(tok, &endPtr, 10);
+        return (*endPtr == L'\0'); // Ensure the entire token was parsed
+    }
+
+    // "Colonized" format (mm:ss:ff or tt:mm:ss:ff) parsing
+    while (*p) {
+        if (*p >= L'0' && *p <= L'9') {
+            fDigitFound = TRUE;
+            dwResult = (dwResult * 10) + (*p - L'0');
+            // Each component (mm, ss, ff) cannot exceed one byte (0-255)
+            if (dwResult > 0xFF) return FALSE;
+        }
+        else if (*p == L':') {
+            if (!fDigitFound) return FALSE; // Prevent formats like ":10"
+            if (Shift > 24) return FALSE;   // Prevent overflow (more than 4 bytes, e.g., tt:mm:ss:ff)
+
+            *outValue |= (dwResult << Shift);
+            Shift += 8;
+            dwResult = 0;
+            fDigitFound = FALSE;
+        }
+        else { break; } // Stop if a non-digit, non-colon char is found
+        p++;
+    }
+
+    // Store the last parsed component
+    if (fDigitFound) {
+        if (Shift > 24) return FALSE;
+        *outValue |= (dwResult << Shift);
+    }
+    else if (Shift == 0) { return FALSE; } // Fail if string ends with a colon, e.g., "10:"
+
+    return (*p == L'\0');
 }
 
 // Helper to format MCI_STATUS return values into a string
@@ -119,7 +152,6 @@ static void FormatTimeString(UINT tf, DWORD packedTime, LPWSTR out, UINT cch) {
             (UINT)MCI_TMSF_FRAME(packedTime));
     }
 }
-
 
 // mci command processing hub
 // TRUE: Processed by mciCommandHub, FALSE: Relay to original
@@ -280,13 +312,11 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
         return TRUE;
     }
 
-    // Simple tokenizer (space-delimited)
     WCHAR buf[512]; lstrcpynW(buf, lpstrCommand, 512);
-    WCHAR* checkText = NULL;
+    WCHAR* checkText = buf; // Points to the current parsing position
     MCI_COMMANDS cmd = CMD_UNKNOWN;
-    WCHAR* token = wcstok(buf, L" \t\r\n", &checkText);
+    WCHAR* token = GetNextToken(&checkText); // Use quote-aware tokenizer
 
-    // If parsing fails, relay to original
     if (!token) return FALSE;
 
     // Parse first command
@@ -297,412 +327,475 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
         }
     }
 
-    // If unsupported command, relay to original
     if (cmd == CMD_UNKNOWN) return FALSE;
 
-    ParsedString pStr;
-    WCHAR* w = NULL;
-    while ((token = wcstok(NULL, L" \t\r\n", &checkText)) != NULL) {
-        // Common flags, MCI_OPEN, MCI_PLAY, MCI_STOP, MCI_PAUSE, MCI_RESUME, MCI_SEEK, MCI_CLOSE
-        if (IsWordEq(token, L"alias")) {
-            w = wcstok(NULL, L" \t\r\n", &checkText);
-            if (w) {
-                lstrcpynW(pStr.alias, w, 64);
-                if (cmd == CMD_OPEN) {
-                    pStr.fdwCommand |= MCI_OPEN_ALIAS;
-                }
-                else if (!DeviceInfo::FindByAlias(pStr.alias)) {
-                    return FALSE;
-                }
-            }
-        }
-        else if (IsWordEq(token, L"type")) {
-            w = wcstok(NULL, L" \t\r\n", &checkText);
-            if (w) {
-                lstrcpynW(pStr.device, w, 64);
-                if (!IsWordEq(w, L"cdaudio"))
-                    return FALSE;
-            }
-        }
-        else if (IsWordEq(token, L"notify"))
-            pStr.fdwCommand |= MCI_NOTIFY;
-        else if (IsWordEq(token, L"wait"))
-            pStr.fdwCommand |= MCI_WAIT;
-        else if (IsWordEq(token, L"from")) {
-            w = wcstok(NULL, L" \t\r\n", &checkText);
-            if (w) {
-                pStr.fdwCommand |= MCI_FROM;
-                if (IsWordEq(w, L"track")) {
-                    // "from track N"
-                    w = wcstok(NULL, L" \t\r\n", &checkText);
-                    if (w) {
-                        pStr.fdwCommand |= MCI_TRACK;
-                        pStr.fromMs = 0;
-                        pStr.fromTrack = ToInt(w);
-                    }
-                }
-                else {
-                    // "from [time]"
-                    if (!ParseTimeToken(w, &pStr.fromMs)) {
-                        pStr.fromMs = 0;
-                        pStr.fdwCommand |= MCI_TRACK;
-                    }
-                    pStr.fromTrack = ToInt(w); // For TMSF
-                }
-            }
-        }
-        else if (IsWordEq(token, L"to")) {
-            w = wcstok(NULL, L" \t\r\n", &checkText);
-            if (w) {
-                if (IsWordEq(w, L"start"))
-                    pStr.fdwCommand |= MCI_SEEK_TO_START;
-                else if (IsWordEq(w, L"end"))
-                    pStr.fdwCommand |= MCI_SEEK_TO_END;
-                else {
-                    pStr.fdwCommand |= MCI_TO;
-                    if (IsWordEq(w, L"track")) {
-                        // "to track N"
-                        w = wcstok(NULL, L" \t\r\n", &checkText);
-                        if (w) {
-                            pStr.fdwCommand |= MCI_TRACK;
-                            pStr.toMs = 0;
-                            pStr.toTrack = ToInt(w);
-                        }
-                    }
-                    else {
-                        // "to [time]"
-                        if (!ParseTimeToken(w, &pStr.toMs)) {
-                            pStr.toMs = 0;
-                            pStr.fdwCommand |= MCI_TRACK;
-                        }
-                        pStr.toTrack = ToInt(w); // For TMSF
-                    }
-                }
-            }
-        }
-        else if (IsWordEq(token, L"track")) {
-            // This is for MCI_STATUS track N length/position
-            pStr.fdwCommand |= MCI_TRACK;
-            w = wcstok(NULL, L" \t\r\n", &checkText);
-            if (w) pStr.track = ToInt(w);
-        }
-        else if (cmd < CMD_SET) {
-            if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); } // First token: usually device/alias
-            continue;
-        }
-
-        // MCI_STATUS
-        else if (cmd == CMD_STATUS) {
-            if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format")) {
-                if (!IsWordEq(token, L"time_format")) {
-                    w = wcstok(NULL, L" \t\r\n", &checkText); // format keyword
-                    if (!w || !IsWordEq(w, L"format"))
-                        continue;
-                }
-                pStr.item = MCI_STATUS_TIME_FORMAT;
-            }
-            else if (IsWordEq(token, L"length"))
-                pStr.item = MCI_STATUS_LENGTH;
-            else if (IsWordEq(token, L"number") || IsWordEq(token, L"number_of_tracks"))
-                pStr.item = MCI_STATUS_NUMBER_OF_TRACKS;
-            else if (IsWordEq(token, L"position"))
-                pStr.item = MCI_STATUS_POSITION;
-            else if (IsWordEq(token, L"current") || IsWordEq(token, L"current_track"))
-                pStr.item = MCI_STATUS_CURRENT_TRACK;
-            else if (IsWordEq(token, L"mode"))
-                pStr.item = MCI_STATUS_MODE;
-            else if (IsWordEq(token, L"present") || IsWordEq(token, L"media_present"))
-                pStr.item = MCI_STATUS_MEDIA_PRESENT;
-            else if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); }
-        }
-
-        // MCI_SET
-        else if (cmd == CMD_SET) {
-            if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format")) {
-                if (!IsWordEq(token, L"time_format")) {
-                    w = wcstok(NULL, L" \t\r\n", &checkText); // format keyword
-                    if (!w || !IsWordEq(w, L"format"))
-                        continue;
-                }
-                pStr.fdwCommand |= MCI_SET_TIME_FORMAT;
-
-                w = wcstok(NULL, L" \t\r\n", &checkText);
-                if (w && IsWordEq(w, L"tmsf"))
-                    pStr.timeFormat = MCI_FORMAT_TMSF;
-                else if (w && IsWordEq(w, L"msf"))
-                    pStr.timeFormat = MCI_FORMAT_MSF;
-                else if (w && (IsWordEq(w, L"ms") || IsWordEq(w, L"milliseconds")))
-                    pStr.timeFormat = MCI_FORMAT_MILLISECONDS;
-            }
-            else if (IsWordEq(token, L"audio")) {
-                w = wcstok(NULL, L" \t\r\n", &checkText); // all, left, right keyword
-                if (!w) continue;
-                else if (IsWordEq(w, L"all"))
-                    pStr.audio = MCI_SET_AUDIO_ALL;
-                else if (IsWordEq(w, L"left"))
-                    pStr.audio = MCI_SET_AUDIO_LEFT;
-                else if (IsWordEq(w, L"right"))
-                    pStr.audio = MCI_SET_AUDIO_RIGHT;
-                else continue;
-
-                w = wcstok(NULL, L" \t\r\n", &checkText); // on, off keyword
-                if (!w) continue;
-                else if (IsWordEq(w, L"on"))
-                    pStr.fdwCommand |= MCI_SET_ON;
-                else if (IsWordEq(w, L"off"))
-                    pStr.fdwCommand |= MCI_SET_OFF;
-            }
-            else if (IsWordEq(token, L"door")) {
-                w = wcstok(NULL, L" \t\r\n", &checkText); // open, closed keyword
-                if (!w) continue;
-                else if (IsWordEq(w, L"open"))
-                    pStr.fdwCommand |= MCI_SET_DOOR_OPEN;
-                else if (IsWordEq(w, L"closed"))
-                    pStr.fdwCommand |= MCI_SET_DOOR_CLOSED;
-            }
-            else if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); }
-        }
-
-        // MCI_INFO
-        else if (cmd == CMD_INFO) {
-            if (IsWordEq(token, L"product")) {
-                pStr.fdwCommand |= MCI_INFO_PRODUCT;
-            }
-            else if (IsWordEq(token, L"info")) continue;
-            else if (IsWordEq(token, L"upc"))
-                pStr.fdwCommand |= MCI_INFO_MEDIA_UPC;
-            else if (IsWordEq(token, L"identity"))
-                pStr.fdwCommand |= MCI_INFO_MEDIA_IDENTITY;
-            else if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); }
-        }
-
-        // MCI_SYSINFO
-        else if (cmd == CMD_SYSINFO) {
-            if (IsWordEq(token, L"installname"))
-                pStr.fdwCommand |= MCI_SYSINFO_INSTALLNAME;
-            else if (IsWordEq(token, L"quantity"))
-                pStr.fdwCommand |= MCI_SYSINFO_QUANTITY;
-            else if (IsWordEq(token, L"open"))
-                pStr.fdwCommand |= MCI_SYSINFO_OPEN;
-            else if (IsWordEq(token, L"name"))
-                pStr.fdwCommand |= MCI_SYSINFO_NAME;
-            else if (!pStr.path[0]) { lstrcpynW(pStr.path, token, 64); }
-        }
+    // Parse device name / alias
+    token = GetNextToken(&checkText); // "cdaudio", "myAlias", "new"
+    if (!token && cmd != CMD_SYSINFO) { // SYSINFO may omit device name
+        *ret = MCIERR_MISSING_DEVICE_NAME;
+        return TRUE;
     }
 
-    // If device name is not cdaudio and alias is empty, relay to original
-    // FIX: Modify search criteria for CD Audio or alias.
-    if (IsWordEq(pStr.path, L"cdaudio")){
-        lstrcpynW(pStr.device, pStr.path, 64);
-    }
-    else if (DeviceInfo::FindByAlias(pStr.path)) {
-        lstrcpynW(pStr.alias, pStr.path, 64);
-        lstrcpynW(pStr.device, L"cdaudio", 64);
-    }
-    else if (pStr.alias[0] && DeviceInfo::FindByAlias(pStr.alias)) {
-        lstrcpynW(pStr.device, L"cdaudio", 64);
-    }
-    if (!IsWordEq(pStr.device, L"cdaudio")) { return FALSE; }
+    WCHAR deviceName[64] = { 0, };
+    WCHAR deviceAlias[64] = { 0, };
+    BOOL isCdaudio = FALSE;
+    BOOL isNew = FALSE;
 
-    // If MCI_OPEN, create new device or call existing
-    DeviceContext* ctx;
-    if (cmd == CMD_OPEN) {
-        ctx = DeviceInfo::GetFirstDevice();
-        if (!ctx) {
-            MCIDEVICEID newId = 0;
-            if (!DeviceInfo::Initialize()) {
-                *ret = MCIERR_INTERNAL;
-                return TRUE;
-            }
-
-            // If alias exists, check first
-            if (pStr.alias[0]) {
-                ctx = DeviceInfo::FindByAlias(pStr.alias);
-            }
-
-            // If not found, create new
-            if (ctx && ctx->isOpen) { newId = ctx->deviceId; }
-            else if (!DeviceInfo::CreateDevice(pStr.alias, &newId)) {
-                *ret = MCIERR_INTERNAL;
-                return TRUE;
-            }
-
-            DeviceInfo::SetAlias(newId, pStr.alias);
-            ctx = DeviceInfo::FindByDeviceID(newId);
-            ctx->isCDA = TRUE;
-
-            // Cache callback/flags
-            DeviceInfo::SetNotifyHWND(ctx->deviceId, hCallback);
-            DeviceInfo::SetOpenFlags(ctx->deviceId, pStr.fdwCommand);
-            if (pStr.alias[0]) { DeviceInfo::SetAlias(newId, pStr.alias); }
-
-            // Delegate to Controller
-            ctx->requestId = 0;
-            *ret = Device::Open(ctx, pStr.fdwCommand, NULL);
+    if (token) {
+        if (IsWordEq(token, L"cdaudio")) {
+            lstrcpynW(deviceName, token, 64);
+            isCdaudio = TRUE;
+        }
+        else if (IsWordEq(token, L"new")) {
+            isNew = TRUE;
+            isCdaudio = TRUE; // 'new' implies cdaudio for this stub
+        }
+        else if (DeviceInfo::FindByAlias(token)) {
+            lstrcpynW(deviceAlias, token, 64);
+            lstrcpynW(deviceName, L"cdaudio", 64);
+            isCdaudio = TRUE;
         }
         else {
-            ctx->requestId = 0;
-            DeviceInfo::SetNotifyHWND(ctx->deviceId, hCallback);
-            if (pStr.fdwCommand & MCI_NOTIFY) {
-                NotifyManager::LazyNotify(ctx->deviceId, ctx->notifyHwnd, MCI_NOTIFY_SUCCESSFUL);
+            if (cmd == CMD_OPEN) {
+                // For 'open', this could be an element name or a new alias
+                lstrcpynW(deviceName, token, 64);
+            }
+            else {
+                // For other commands, this is an unknown device
+                lstrcpynW(deviceName, token, 64);
+                isCdaudio = FALSE;
             }
         }
-        // [!!] ADDED: Return device ID in lpstrReturn for string OPEN
+    }
+
+
+    // Find DeviceContext
+    DeviceContext* ctx = NULL;
+    if (cmd == CMD_OPEN) {
+        // OPEN creates or finds the ctx later in the parsing loop
+        if (isNew) {
+            // 'open new ...'
+        }
+        else if (isCdaudio) {
+            if (deviceAlias[0]) {
+                ctx = DeviceInfo::FindByAlias(deviceAlias);
+            }
+            else {
+                ctx = DeviceInfo::GetFirstDevice();
+            }
+        }
+    }
+    else {
+        // Other commands require an existing ctx
+        if (isCdaudio) {
+            if (deviceAlias[0]) {
+                ctx = DeviceInfo::FindByAlias(deviceAlias);
+            }
+            else {
+                ctx = DeviceInfo::GetFirstDevice();
+            }
+        }
+
+        if (!isCdaudio) return FALSE; // Don't handle non-cdaudio strings
+
+        if (!ctx) {
+            // Auto-open default device if 'play cdaudio' is used
+            if (!deviceAlias[0] && IsWordEq(deviceName, L"cdaudio")) {
+                MCIDEVICEID newId = 0;
+                if (!(DeviceInfo::Initialize() && DeviceInfo::CreateDevice(NULL, &newId))) {
+                    return FALSE;
+                }
+                ctx = DeviceInfo::FindByDeviceID(newId);
+                ctx->isCDA = TRUE;
+                ctx->timeFormat = MCI_FORMAT_TMSF;
+            }
+            else {
+                *ret = MCIERR_INVALID_DEVICE_NAME;
+                return TRUE;
+            }
+        }
+    }
+
+    DWORD fdwCommand = 0;
+
+    // OPEN is special cased (ctx creation)
+    if (cmd == CMD_OPEN) {
+        MCI_OPEN_PARMSW dwParam{ 0, };
+        dwParam.dwCallback = (DWORD_PTR)hCallback;
+
+        BOOL typeFlagFound = FALSE;
+        WCHAR alias[64] = { 0, };
+
+        // Parse 'open' parameters
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify"))
+                fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait"))
+                fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"alias")) {
+                token = GetNextToken(&checkText);
+                if (token) {
+                    fdwCommand |= MCI_OPEN_ALIAS;
+                    lstrcpynW(alias, token, 64);
+                    dwParam.lpstrAlias = alias;
+                }
+            }
+            else if (IsWordEq(token, L"type")) {
+                token = GetNextToken(&checkText);
+                if (token) {
+                    typeFlagFound = TRUE;
+                    if (IsWordEq(token, L"cdaudio")) {
+                        isCdaudio = TRUE;
+                        dwParam.lpstrDeviceType = (LPCWSTR)MCI_DEVTYPE_CD_AUDIO;
+                        fdwCommand |= MCI_OPEN_TYPE_ID; // Use type ID
+                    }
+                    else {
+                        return FALSE; // Not cdaudio
+                    }
+                }
+            }
+        }
+
+        if (!isCdaudio && !typeFlagFound) return FALSE; // 'open foo.wav'
+        if (isNew && !(fdwCommand & MCI_OPEN_ALIAS)) {
+            *ret = MCIERR_NEW_REQUIRES_ALIAS;
+            return TRUE;
+        }
+
+        // --- Re-using mciCommandHub OPEN logic ---
+        MCIDEVICEID newId = 0;
+        if (alias[0]) {
+            ctx = DeviceInfo::FindByAlias(alias);
+        }
+        if (!ctx) {
+            ctx = DeviceInfo::GetFirstDevice();
+        }
+
+        if (ctx && ctx->isOpen) {
+            newId = ctx->deviceId;
+        }
+        else {
+            if (!DeviceInfo::Initialize()) { *ret = MCIERR_INTERNAL; return TRUE; }
+            if (!DeviceInfo::CreateDevice(alias[0] ? alias : NULL, &newId)) {
+                *ret = MCIERR_INTERNAL; return TRUE;
+            }
+        }
+
+        ctx = DeviceInfo::FindByDeviceID(newId);
+        ctx->isCDA = TRUE;
+        dwParam.wDeviceID = newId;
+
+        DeviceInfo::SetNotifyHWND(ctx->deviceId, (HWND)dwParam.dwCallback);
+        DeviceInfo::SetOpenFlags(ctx->deviceId, fdwCommand);
+        if (alias[0]) { DeviceInfo::SetAlias(newId, alias); }
+
+        ctx->requestId = 0; // mciSendString uses deviceId 0
+        *ret = Device::Open(ctx, fdwCommand, (DWORD_PTR)&dwParam);
+
         if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
             wsprintfW(lpstrReturn, L"%u", ctx->deviceId);
         }
         return TRUE;
     }
 
-    // Other than OPEN (alias check already done above)
-    else {
-        // If alias exists, check first
-        if (pStr.alias[0]) { ctx = DeviceInfo::FindByAlias(pStr.alias); }
-        else { ctx = DeviceInfo::GetFirstDevice(); }
+    // --- All commands other than OPEN ---
+    if (!ctx) {
+        *ret = MCIERR_INVALID_DEVICE_NAME;
+        return TRUE;
+    }
+    ctx->requestId = 0;
+    DeviceInfo::SetNotifyHWND(ctx->deviceId, hCallback);
 
-        // If lookup fails, create new device
-        if (!ctx) {
-            MCIDEVICEID newId = 0;
-            if (!(DeviceInfo::Initialize() && DeviceInfo::CreateDevice(NULL, &newId))) {
-                return FALSE;
-            }
+    switch (cmd) {
+    case CMD_PLAY: {
+        MCI_PLAY_PARMS dwParam{ 0, };
+        BOOL isTrack = FALSE;
+        dwParam.dwCallback = (DWORD_PTR)hCallback;
 
-            ctx = DeviceInfo::FindByDeviceID(newId);
-            ctx->isCDA = TRUE;
-            ctx->timeFormat = MCI_FORMAT_TMSF; // Time format of the unique device is assumed to be tmsf.
-        }
-
-        // Update callback hwnd
-        ctx->requestId = 0;
-        DeviceInfo::SetNotifyHWND(ctx->deviceId, hCallback);
-
-        // Common dispatch
-        switch (cmd) {
-        case CMD_PLAY: {
-            MCI_PLAY_PARMS dwParam{ 0, };
-            dwParam.dwCallback = (DWORD_PTR)hCallback;
-            UINT tf = ctx->timeFormat;
-            if (pStr.fdwCommand & MCI_TRACK) {
-                ctx->timeFormat = MCI_FORMAT_TMSF;
-            }
-            if (pStr.fdwCommand & MCI_FROM) {
-                dwParam.dwFrom = PackStringTime(ctx->timeFormat, pStr.fromMs, pStr.fromTrack);
-            }
-            if (pStr.fdwCommand & MCI_TO) {
-                dwParam.dwTo = PackStringTime(ctx->timeFormat, pStr.toMs, pStr.toTrack);
-            }
-
-            *ret = Device::Play(ctx, pStr.fdwCommand, (DWORD_PTR)&dwParam);
-
-            if (pStr.fdwCommand & MCI_TRACK) {
-                ctx->timeFormat = tf;
-            }
-            break;
-        }
-        case CMD_STOP: { *ret = Device::Stop(ctx, pStr.fdwCommand, NULL); break; }
-        case CMD_PAUSE: { *ret = Device::Pause(ctx, pStr.fdwCommand, NULL); break; }
-        case CMD_RESUME: { *ret = Device::Resume(ctx, pStr.fdwCommand, NULL); break; }
-        case CMD_SEEK: {
-            MCI_SEEK_PARMS dwParam{ 0, };
-            dwParam.dwCallback = (DWORD_PTR)hCallback;
-            if (pStr.fdwCommand & MCI_TO) {
-                dwParam.dwTo = PackStringTime(ctx->timeFormat, pStr.toMs, pStr.toTrack);
-            }
-            *ret = Device::Seek(ctx, pStr.fdwCommand, (DWORD_PTR)&dwParam);
-            break;
-        }
-        case CMD_SET: {
-            MCI_SET_PARMS dwParam{ 0, };
-            dwParam.dwCallback = (DWORD_PTR)hCallback;
-            dwParam.dwAudio = pStr.audio;
-            dwParam.dwTimeFormat = pStr.timeFormat;
-            *ret = Device::Set(ctx, pStr.fdwCommand, (DWORD_PTR)&dwParam);
-            break;
-        }
-        case CMD_STATUS: {
-            MCI_STATUS_PARMS dwParam{ 0, };
-            dwParam.dwCallback = (DWORD_PTR)hCallback;
-            dwParam.dwItem = pStr.item;
-            dwParam.dwTrack = pStr.track;
-
-            *ret = Device::Status(ctx, pStr.fdwCommand, (DWORD_PTR)&dwParam);
-
-            if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
-                switch (pStr.item) {
-                case MCI_STATUS_LENGTH:
-                case MCI_STATUS_POSITION:
-                    FormatTimeString(ctx->timeFormat, dwParam.dwReturn, lpstrReturn, uReturnLength);
-                    break;
-                case MCI_STATUS_MODE:
-                    switch (dwParam.dwReturn) {
-                    case MCI_MODE_PLAY:   lstrcpynW(lpstrReturn, L"playing", uReturnLength); break;
-                    case MCI_MODE_PAUSE:  lstrcpynW(lpstrReturn, L"paused", uReturnLength); break;
-                    case MCI_MODE_STOP:   lstrcpynW(lpstrReturn, L"stopped", uReturnLength); break;
-                    default:              lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
-                    }
-                    break;
-                case MCI_STATUS_MEDIA_PRESENT:
-                    lstrcpynW(lpstrReturn, (dwParam.dwReturn ? L"TRUE" : L"FALSE"), uReturnLength);
-                    break;
-                case MCI_STATUS_TIME_FORMAT:
-                    switch (dwParam.dwReturn) {
-                    case MCI_FORMAT_MILLISECONDS: lstrcpynW(lpstrReturn, L"milliseconds", uReturnLength); break;
-                    case MCI_FORMAT_MSF:          lstrcpynW(lpstrReturn, L"msf", uReturnLength); break;
-                    case MCI_FORMAT_TMSF:         lstrcpynW(lpstrReturn, L"tmsf", uReturnLength); break;
-                    default:                      lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
-                    }
-                    break;
-                case MCI_STATUS_NUMBER_OF_TRACKS:
-                case MCI_STATUS_CURRENT_TRACK:
-                default:
-                    wsprintfW(lpstrReturn, L"%lu", dwParam.dwReturn);
-                    break;
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"from")) {
+                fdwCommand |= MCI_FROM;
+                token = GetNextToken(&checkText);
+                if (!(token[1] == ':' || token[2] == ':')) isTrack = TRUE;
+                if (!token || !ParseMciInteger(token, &dwParam.dwFrom)) {
+                    *ret = MCIERR_BAD_INTEGER; return TRUE;
                 }
             }
-            break;
-        }
-        case CMD_INFO: {
-            MCI_INFO_PARMSW dwParam{ 0, };
-            dwParam.dwCallback = (DWORD_PTR)hCallback;
-            WCHAR str[128]{ 0, };
-            dwParam.lpstrReturn = str;
-            dwParam.dwRetSize = ARRAYSIZE(str);
-
-            *ret = Device::Info(ctx, pStr.fdwCommand, (DWORD_PTR)&dwParam);
-
-            if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
-                lstrcpynW(lpstrReturn, str, uReturnLength);
+            else if (IsWordEq(token, L"to")) {
+                fdwCommand |= MCI_TO;
+                token = GetNextToken(&checkText);
+                if (!(token[1] == ':' || token[2] == ':')) isTrack = TRUE;
+                if (!token || !ParseMciInteger(token, &dwParam.dwTo)) {
+                    *ret = MCIERR_BAD_INTEGER; return TRUE;
+                }
             }
-            break;
         }
-        case CMD_SYSINFO: {
-            MCI_SYSINFO_PARMSW dwParam{ 0, };
-            dwParam.dwCallback = (DWORD_PTR)hCallback;
-            WCHAR str[128]{ 0, };
-            dwParam.lpstrReturn = str;
-            dwParam.dwRetSize = ARRAYSIZE(str);
-
-            // Set params from parsed flags
-            dwParam.wDeviceType = MCI_DEVTYPE_CD_AUDIO; // Assume cdaudio for all string sysinfo
-            if (pStr.fdwCommand & (MCI_SYSINFO_NAME | MCI_SYSINFO_OPEN)) {
-                // The parser is flawed, 'name cdaudio 1' isn't parsed right.
-                dwParam.dwNumber = 1;
-            }
-
-            *ret = Device::SysInfo(ctx, pStr.fdwCommand, (DWORD_PTR)&dwParam);
-
-            if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
-                lstrcpynW(lpstrReturn, str, uReturnLength);
-            }
-            break;
+        if (isTrack) {
+            UINT storeTf = ctx->timeFormat;
+            ctx->timeFormat = MCI_FORMAT_TMSF;
+            *ret = Device::Play(ctx, fdwCommand, (DWORD_PTR)&dwParam);
+            ctx->timeFormat = storeTf;
         }
-        case CMD_CLOSE: {
-            *ret = Device::Close(ctx, pStr.fdwCommand, NULL);
-            DeviceInfo::Destroy(ctx->deviceId);
-            break;
+        else {
+            *ret = Device::Play(ctx, fdwCommand, (DWORD_PTR)&dwParam);
         }
-        }
+        break;
     }
+    case CMD_STOP:
+    case CMD_PAUSE:
+    case CMD_RESUME: {
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+        }
+        if (cmd == CMD_STOP) *ret = Device::Stop(ctx, fdwCommand, NULL);
+        else if (cmd == CMD_PAUSE) *ret = Device::Pause(ctx, fdwCommand, NULL);
+        else if (cmd == CMD_RESUME) *ret = Device::Resume(ctx, fdwCommand, NULL);
+        break;
+    }
+    case CMD_SEEK: {
+        MCI_SEEK_PARMS dwParam{ 0, };
+        dwParam.dwCallback = (DWORD_PTR)hCallback;
+
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"track")) fdwCommand |= MCI_TRACK;
+            else if (IsWordEq(token, L"to")) {
+                token = GetNextToken(&checkText);
+                if (token) {
+                    if (IsWordEq(token, L"start")) fdwCommand |= MCI_SEEK_TO_START;
+                    else if (IsWordEq(token, L"end")) fdwCommand |= MCI_SEEK_TO_END;
+                    else if (IsWordEq(token, L"track")) fdwCommand |= MCI_TRACK;
+                    else {
+                        fdwCommand |= MCI_TO;
+                        if (!ParseMciInteger(token, &dwParam.dwTo)) {
+                            *ret = MCIERR_BAD_INTEGER; return TRUE;
+                        }
+                    }
+                }
+            }
+        }
+        *ret = Device::Seek(ctx, fdwCommand, (DWORD_PTR)&dwParam);
+        break;
+    }
+    case CMD_SET: {
+        MCI_SET_PARMS dwParam{ 0, };
+        dwParam.dwCallback = (DWORD_PTR)hCallback;
+
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format")) {
+                if (IsWordEq(token, L"time")) {
+                    token = GetNextToken(&checkText);
+                    if (!token || !IsWordEq(token, L"format")) { continue; }
+                }
+                fdwCommand |= MCI_SET_TIME_FORMAT;
+                token = GetNextToken(&checkText);
+                if (token && IsWordEq(token, L"tmsf"))
+                    dwParam.dwTimeFormat = MCI_FORMAT_TMSF;
+                else if (token && IsWordEq(token, L"msf"))
+                    dwParam.dwTimeFormat = MCI_FORMAT_MSF;
+                else if (token && (IsWordEq(token, L"ms") || IsWordEq(token, L"milliseconds")))
+                    dwParam.dwTimeFormat = MCI_FORMAT_MILLISECONDS;
+                else { *ret = MCIERR_BAD_CONSTANT; return TRUE; }
+            }
+            else if (IsWordEq(token, L"audio")) {
+                token = GetNextToken(&checkText); // all/left/right
+                if (token && IsWordEq(token, L"all")) dwParam.dwAudio = MCI_SET_AUDIO_ALL;
+                else if (token && IsWordEq(token, L"left")) dwParam.dwAudio = MCI_SET_AUDIO_LEFT;
+                else if (token && IsWordEq(token, L"right")) dwParam.dwAudio = MCI_SET_AUDIO_RIGHT;
+                else { *ret = MCIERR_BAD_CONSTANT; return TRUE; }
+
+                token = GetNextToken(&checkText); // on/off
+                if (token && IsWordEq(token, L"on")) fdwCommand |= MCI_SET_ON;
+                else if (token && IsWordEq(token, L"off")) fdwCommand |= MCI_SET_OFF;
+                else { *ret = MCIERR_MISSING_PARAMETER; return TRUE; }
+            }
+            else if (IsWordEq(token, L"door")) {
+                token = GetNextToken(&checkText); // open/closed
+                if (token && IsWordEq(token, L"open")) fdwCommand |= MCI_SET_DOOR_OPEN;
+                else if (token && IsWordEq(token, L"closed")) fdwCommand |= MCI_SET_DOOR_CLOSED;
+                else { *ret = MCIERR_BAD_CONSTANT; return TRUE; }
+            }
+        }
+        *ret = Device::Set(ctx, fdwCommand, (DWORD_PTR)&dwParam);
+        break;
+    }
+    case CMD_STATUS: {
+        MCI_STATUS_PARMS dwParam{ 0, };
+        dwParam.dwCallback = (DWORD_PTR)hCallback;
+
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"length")) {
+                fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_LENGTH;
+            }
+            else if (IsWordEq(token, L"position")) {
+                fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_POSITION;
+            }
+            else if (IsWordEq(token, L"number") || IsWordEq(token, L"number_of_tracks")) {
+                if (IsWordEq(token, L"number")) {
+                    token = GetNextToken(&checkText);
+                    if (!token || !IsWordEq(token, L"of")) { continue; }
+                    token = GetNextToken(&checkText);
+                    if (!token || !IsWordEq(token, L"tracks")) { continue; }
+                }
+                fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_NUMBER_OF_TRACKS;
+            }
+            else if (IsWordEq(token, L"current") || IsWordEq(token, L"current_track")) {
+                if (IsWordEq(token, L"current")) {
+                    token = GetNextToken(&checkText);
+                    if (!token || !IsWordEq(token, L"track")) { continue; }
+                }
+                fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_CURRENT_TRACK;
+            }
+            else if (IsWordEq(token, L"mode")) {
+                fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_MODE;
+            }
+            else if (IsWordEq(token, L"media") || IsWordEq(token, L"media_present")) {
+                if (IsWordEq(token, L"media")) {
+                    token = GetNextToken(&checkText);
+                    if (!token || !IsWordEq(token, L"present")) { continue; }
+                }
+                fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_MEDIA_PRESENT;
+            }
+            else if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format")) {
+                if (IsWordEq(token, L"time")) {
+                    token = GetNextToken(&checkText);
+                    if (!token || !IsWordEq(token, L"format")) { continue; }
+                }
+                fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_TIME_FORMAT;
+            }
+            else if (IsWordEq(token, L"track")) {
+                // "status ... track N ..."
+                fdwCommand |= MCI_TRACK;
+                token = GetNextToken(&checkText);
+                DWORD trackNum;
+                if (!token || !ParseMciInteger(token, &trackNum)) {
+                    *ret = MCIERR_BAD_INTEGER; return TRUE;
+                }
+                dwParam.dwTrack = trackNum;
+            }
+        }
+
+        if (!(fdwCommand & MCI_STATUS_ITEM)) {
+            *ret = MCIERR_MISSING_PARAMETER; return TRUE;
+        }
+
+        *ret = Device::Status(ctx, fdwCommand, (DWORD_PTR)&dwParam);
+
+        if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
+            // Format return string
+            switch (dwParam.dwItem) {
+            case MCI_STATUS_LENGTH:
+            case MCI_STATUS_POSITION:
+                FormatTimeString(ctx->timeFormat, dwParam.dwReturn, lpstrReturn, uReturnLength);
+                break;
+            case MCI_STATUS_MODE:
+                switch (dwParam.dwReturn) {
+                case MCI_MODE_PLAY:   lstrcpynW(lpstrReturn, L"playing", uReturnLength); break;
+                case MCI_MODE_PAUSE:  lstrcpynW(lpstrReturn, L"paused", uReturnLength); break;
+                case MCI_MODE_STOP:   lstrcpynW(lpstrReturn, L"stopped", uReturnLength); break;
+                default:              lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
+                }
+                break;
+            case MCI_STATUS_MEDIA_PRESENT:
+                lstrcpynW(lpstrReturn, (dwParam.dwReturn ? L"TRUE" : L"FALSE"), uReturnLength);
+                break;
+            case MCI_STATUS_TIME_FORMAT:
+                switch (dwParam.dwReturn) {
+                case MCI_FORMAT_MILLISECONDS: lstrcpynW(lpstrReturn, L"milliseconds", uReturnLength); break;
+                case MCI_FORMAT_MSF:          lstrcpynW(lpstrReturn, L"msf", uReturnLength); break;
+                case MCI_FORMAT_TMSF:         lstrcpynW(lpstrReturn, L"tmsf", uReturnLength); break;
+                default:                      lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
+                }
+                break;
+            case MCI_STATUS_NUMBER_OF_TRACKS:
+            case MCI_STATUS_CURRENT_TRACK:
+            default:
+                wsprintfW(lpstrReturn, L"%lu", dwParam.dwReturn);
+                break;
+            }
+        }
+        break;
+    }
+    case CMD_INFO: {
+        MCI_INFO_PARMSW dwParam{ 0, };
+        dwParam.dwCallback = (DWORD_PTR)hCallback;
+        WCHAR str[128]{ 0, };
+        dwParam.lpstrReturn = str;
+        dwParam.dwRetSize = ARRAYSIZE(str);
+
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"product")) fdwCommand |= MCI_INFO_PRODUCT;
+            else if (IsWordEq(token, L"upc")) fdwCommand |= MCI_INFO_MEDIA_UPC;
+            else if (IsWordEq(token, L"identity")) fdwCommand |= MCI_INFO_MEDIA_IDENTITY;
+        }
+        if (!fdwCommand) { *ret = MCIERR_MISSING_PARAMETER; return TRUE; }
+
+        *ret = Device::Info(ctx, fdwCommand, (DWORD_PTR)&dwParam);
+
+        if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
+            lstrcpynW(lpstrReturn, str, uReturnLength);
+        }
+        break;
+    }
+    case CMD_SYSINFO: {
+        MCI_SYSINFO_PARMSW dwParam{ 0, };
+        dwParam.dwCallback = (DWORD_PTR)hCallback;
+        WCHAR str[128]{ 0, };
+        dwParam.lpstrReturn = str;
+        dwParam.dwRetSize = ARRAYSIZE(str);
+        dwParam.wDeviceType = MCI_DEVTYPE_CD_AUDIO; // Fixed to cdaudio
+
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"installname")) fdwCommand |= MCI_SYSINFO_INSTALLNAME;
+            else if (IsWordEq(token, L"quantity")) fdwCommand |= MCI_SYSINFO_QUANTITY;
+            else if (IsWordEq(token, L"open")) fdwCommand |= MCI_SYSINFO_OPEN;
+            else if (IsWordEq(token, L"name")) {
+                fdwCommand |= MCI_SYSINFO_NAME;
+                token = GetNextToken(&checkText); // "name cdaudio N"
+                DWORD devNum;
+                if (token && ParseMciInteger(token, &devNum)) {
+                    dwParam.dwNumber = devNum;
+                }
+                else {
+                    dwParam.dwNumber = 1; // Default
+                }
+            }
+        }
+        if (!fdwCommand) { *ret = MCIERR_MISSING_PARAMETER; return TRUE; }
+
+        *ret = Device::SysInfo(ctx, fdwCommand, (DWORD_PTR)&dwParam);
+
+        if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
+            lstrcpynW(lpstrReturn, str, uReturnLength);
+        }
+        break;
+    }
+    case CMD_CLOSE: {
+        while ((token = GetNextToken(&checkText)) != NULL) {
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+        }
+        *ret = Device::Close(ctx, fdwCommand, NULL);
+        DeviceInfo::Destroy(ctx->deviceId);
+        break;
+    }
+    default:
+        *ret = MCIERR_UNRECOGNIZED_COMMAND;
+        break;
+    }
+
     return TRUE;
 }
 

@@ -90,6 +90,12 @@ namespace {
         if (f.sampleRate == 0) return 0;
         return (DWORD)((unsigned __int64)frames * 1000ULL / (unsigned __int64)f.sampleRate);
     }
+    static BOOL HasReachedEnd() {
+        if (gLoop || !gEverPlayed || gRangeTotalMs == 0) return FALSE;
+
+        DWORD elapsedMs = Engine_PosMs();
+        return (elapsedMs >= gRangeTotalMs);
+    }
 
     // --- Track/Disc Logic (Helpers for Public API) ---
     static void InitializeTrackPath() {
@@ -821,7 +827,7 @@ namespace AudioEngine {
         if (!OpenDecoderAtSegment(gSegs[0])) return FALSE;
         if (!Engine_Play(gFmt.sampleRate, gFmt.channels, gLoop, FillFromStream)) return FALSE;
 #endif
-        gRangeTotalMs = (gRangeTotalMs < 256) ? (gRangeTotalMs / 2) : (gRangeTotalMs - 128);
+        // gRangeTotalMs = (gRangeTotalMs < 256) ? (gRangeTotalMs / 2) : (gRangeTotalMs - 128);
         gEverPlayed = TRUE;
 
         // Re-apply cached volume/mute state after starting playback
@@ -912,13 +918,6 @@ namespace AudioEngine {
 
     UINT  CurrentSampleRate() { return Engine_SR(); }
     UINT  CurrentChannels() { return Engine_CH(); }
-
-    BOOL HasReachedEnd() {
-        if (gLoop || !gEverPlayed || gRangeTotalMs == 0) return FALSE;
-
-        DWORD elapsedMs = Engine_PosMs();
-        return (elapsedMs >= gRangeTotalMs);
-    }
 
     BOOL GetDiscNumTracks(int* outCount) {
         return CountDiscNumTracks(outCount);

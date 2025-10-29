@@ -5,7 +5,6 @@
 // External dependency: Audio Engine status
 namespace AudioEngine {
     BOOL IsPlaying();
-    BOOL HasReachedEnd();
 }
 
 namespace {
@@ -128,7 +127,7 @@ namespace {
             }
             else if (gNotifyState.pollState == POLL_STATE_POLLING) {
                 // We are polling for completion
-                if (AudioEngine::HasReachedEnd()) {
+                if (!AudioEngine::IsPlaying()) {
                     // Playback finished
                     doPost = TRUE;
                     postCode = MCI_NOTIFY_SUCCESSFUL;
@@ -268,15 +267,13 @@ namespace NotifyManager {
         SupersedeActiveJob(TRUE);
         LeaveCriticalSection(&gCs);
 
-        Sleep(100);
-
         // Failed to start, return failure (no notify)
-        if (!AudioEngine::IsPlaying() && !AudioEngine::HasReachedEnd()) {
+        if (!AudioEngine::IsPlaying()) {
             return MCIERR_INTERNAL;
         }
 
         // Blocking poll loop
-        while (AudioEngine::IsPlaying() && !AudioEngine::HasReachedEnd()) {
+        while (AudioEngine::IsPlaying()) {
             Sleep(50);
         }
 

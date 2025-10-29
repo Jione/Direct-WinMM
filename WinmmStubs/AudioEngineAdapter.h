@@ -25,7 +25,7 @@ namespace AudioEngine {
     float GetMasterVolume();
     void  SetSubVolume(float volLeft, float volRight); // 0.0~1.0
     void  GetSubVolume(float* outVolLeft, float* outVolRight);
-    void  SetChannelMute(BOOL muteLeft, BOOL muteRight); // [!!] ADDED
+    void  SetChannelMute(BOOL muteLeft, BOOL muteRight);
 
     // Status
     BOOL  IsPlaying();
@@ -35,7 +35,6 @@ namespace AudioEngine {
     DWORD CurrentPositionMs();   // MCICDA compatibility rule
     UINT  CurrentSampleRate();
     UINT  CurrentChannels();
-    BOOL  HasReachedEnd();       // Check if non-looping playback finished
 
     // Total number of tracks (MCI_STATUS_NUMBER_OF_TRACKS)
     BOOL  GetDiscNumTracks(int* outCount);
