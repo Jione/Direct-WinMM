@@ -36,6 +36,7 @@ struct DeviceContext {
     DWORD openFlags;           // MCI_OPEN flags cache
     DWORD elementId;           // For storing element id (if MCI_OPEN_ELEMENT_ID is used)
 
+    WCHAR element[64];         // element (mciSendString open element)
     WCHAR alias[64];           // Alias (mciSendString open alias)
     UINT  timeFormat;          // MCI_FORMAT_MSF/TMSF/MILLISECONDS
     HWND  notifyHwnd;          // MCI_NOTIFY target HWND (based on last request)
@@ -43,9 +44,6 @@ struct DeviceContext {
     // Thread info (for reference)
     DWORD hCreatorThreadId;
     DWORD hOpeningThreadId;
-
-    // Reserved field (for future expansion)
-    DWORD reserved;
 };
 
 // --- Time conversion utils for devices ---
@@ -91,8 +89,10 @@ namespace DeviceInfo {
     // Find
     DeviceContext* FindByDeviceID(MCIDEVICEID deviceId);
     DeviceContext* FindByAlias(LPCWSTR alias);
+    DeviceContext* FindByElement(LPCWSTR element);
 
     // Set/Get Properties
+    BOOL SetElement(MCIDEVICEID deviceId, LPCWSTR element);
     BOOL SetAlias(MCIDEVICEID deviceId, LPCWSTR alias);
     BOOL SetNotifyHWND(MCIDEVICEID deviceId, HWND hwnd);
     HWND GetNotifyHWND(MCIDEVICEID deviceId);

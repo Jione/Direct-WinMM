@@ -8,7 +8,7 @@
 
 // const WCHAR* const [] : Array pointers and the strings they point to are both constants
 const WCHAR* const mciCommand[] = {
-    L"open", L"play", L"stop", L"pause", L"resume", L"seek", L"close", L"set", L"status", L"info", L"sysinfo"
+    L"open", L"play", L"stop", L"pause", L"resume", L"seek", L"close", L"set", L"status", L"info", L"sysinfo", L"capability"
 };
 enum MCI_COMMANDS {
     CMD_OPEN = 0,
@@ -22,6 +22,7 @@ enum MCI_COMMANDS {
     CMD_STATUS,
     CMD_INFO,
     CMD_SYSINFO,
+    CMD_GETDEVCAPS,
     CMD_UNKNOWN,
 };
 
@@ -272,15 +273,16 @@ BOOL WINAPI mciCommandHub(MCIDEVICEID deviceId, UINT uMsg, DWORD_PTR fdwCommand,
 
         // Common dispatch
         switch (uMsg) {
-        case MCI_PLAY:   *ret = Device::Play(ctx, fdwCommand, dwParam); break;
-        case MCI_STOP:   *ret = Device::Stop(ctx, fdwCommand, dwParam); break;
-        case MCI_PAUSE:  *ret = Device::Pause(ctx, fdwCommand, dwParam); break;
-        case MCI_RESUME: *ret = Device::Resume(ctx, fdwCommand, dwParam); break;
-        case MCI_SEEK:   *ret = Device::Seek(ctx, fdwCommand, dwParam); break;
-        case MCI_SET:    *ret = Device::Set(ctx, fdwCommand, dwParam); break;
-        case MCI_STATUS: *ret = Device::Status(ctx, fdwCommand, dwParam); break;
-        case MCI_INFO:   *ret = Device::Info(ctx, fdwCommand, dwParam); break;
-        case MCI_SYSINFO:*ret = Device::SysInfo(ctx, fdwCommand, dwParam); break;
+        case MCI_PLAY:      *ret = Device::Play(ctx, fdwCommand, dwParam); break;
+        case MCI_STOP:      *ret = Device::Stop(ctx, fdwCommand, dwParam); break;
+        case MCI_PAUSE:     *ret = Device::Pause(ctx, fdwCommand, dwParam); break;
+        case MCI_RESUME:    *ret = Device::Resume(ctx, fdwCommand, dwParam); break;
+        case MCI_SEEK:      *ret = Device::Seek(ctx, fdwCommand, dwParam); break;
+        case MCI_SET:       *ret = Device::Set(ctx, fdwCommand, dwParam); break;
+        case MCI_STATUS:    *ret = Device::Status(ctx, fdwCommand, dwParam); break;
+        case MCI_INFO:      *ret = Device::Info(ctx, fdwCommand, dwParam); break;
+        case MCI_SYSINFO:   *ret = Device::SysInfo(ctx, fdwCommand, dwParam); break;
+        case MCI_GETDEVCAPS:*ret = Device::DevCaps(ctx, fdwCommand, dwParam); break;
         case MCI_CLOSE: {
             *ret = Device::Close(ctx, fdwCommand, dwParam);
             DeviceInfo::Destroy(ctx->deviceId);
@@ -326,6 +328,9 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             break;
         }
     }
+    if (lstrcmpiW(mciCommand[CMD_UNKNOWN], token) == 0) {
+        cmd = CMD_GETDEVCAPS;
+    }
 
     if (cmd == CMD_UNKNOWN) return FALSE;
 
@@ -340,6 +345,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
     WCHAR deviceAlias[64] = { 0, };
     BOOL isCdaudio = FALSE;
     BOOL isNew = FALSE;
+    BOOL isAll = FALSE;
 
     if (token) {
         if (IsWordEq(token, L"cdaudio")) {
@@ -350,10 +356,22 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             isNew = TRUE;
             isCdaudio = TRUE; // 'new' implies cdaudio for this stub
         }
+        else if (IsWordEq(token, L"all")) {
+            isAll = TRUE; // 'all' implies cdaudio for this stub
+            isCdaudio = TRUE;
+        }
         else if (DeviceInfo::FindByAlias(token)) {
             lstrcpynW(deviceAlias, token, 64);
             lstrcpynW(deviceName, L"cdaudio", 64);
             isCdaudio = TRUE;
+        }
+        else if (cmd != CMD_OPEN && DeviceInfo::FindByElement(token)) {
+            DeviceContext* foundCtx = DeviceInfo::FindByElement(token);
+            if (foundCtx) {
+                lstrcpynW(deviceAlias, foundCtx->alias, 64); // Use its alias
+                lstrcpynW(deviceName, L"cdaudio", 64);
+                isCdaudio = TRUE;
+            }
         }
         else {
             if (cmd == CMD_OPEN) {
@@ -376,6 +394,9 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
         if (isNew) {
             // 'open new ...'
         }
+        else if (isAll) {
+            return FALSE;
+        }
         else if (isCdaudio) {
             if (deviceAlias[0]) {
                 ctx = DeviceInfo::FindByAlias(deviceAlias);
@@ -387,7 +408,20 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
     }
     else {
         // Other commands require an existing ctx
-        if (isCdaudio) {
+        if (isAll) {
+            ctx = DeviceInfo::GetFirstDevice();
+            if (!ctx) {
+                MCIDEVICEID newId = 0;
+                if (!(DeviceInfo::Initialize() && DeviceInfo::CreateDevice(NULL, &newId))) {
+                    return FALSE;
+                }
+
+                ctx = DeviceInfo::FindByDeviceID(newId);
+                ctx->isCDA = TRUE;
+                ctx->timeFormat = MCI_FORMAT_TMSF;  // Time format of the unique device is assumed to be tmsf.
+            }
+        }
+        else if (isCdaudio) {
             if (deviceAlias[0]) {
                 ctx = DeviceInfo::FindByAlias(deviceAlias);
             }
@@ -407,11 +441,11 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 }
                 ctx = DeviceInfo::FindByDeviceID(newId);
                 ctx->isCDA = TRUE;
-                ctx->timeFormat = MCI_FORMAT_TMSF;
+                ctx->timeFormat = MCI_FORMAT_MSF;
             }
             else {
                 *ret = MCIERR_INVALID_DEVICE_NAME;
-                return TRUE;
+                return !isAll;;
             }
         }
     }
@@ -485,6 +519,11 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
         ctx->isCDA = TRUE;
         dwParam.wDeviceID = newId;
 
+        if (isCdaudio && !IsWordEq(deviceName, L"cdaudio") && !isNew) {
+            fdwCommand |= MCI_OPEN_ELEMENT;
+            dwParam.lpstrElementName = deviceName;
+        }
+
         DeviceInfo::SetNotifyHWND(ctx->deviceId, (HWND)dwParam.dwCallback);
         DeviceInfo::SetOpenFlags(ctx->deviceId, fdwCommand);
         if (alias[0]) { DeviceInfo::SetAlias(newId, alias); }
@@ -501,9 +540,9 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
     // --- All commands other than OPEN ---
     if (!ctx) {
         *ret = MCIERR_INVALID_DEVICE_NAME;
-        return TRUE;
+        return !isAll;
     }
-    ctx->requestId = 0;
+    ctx->requestId = ctx->deviceId;
     DeviceInfo::SetNotifyHWND(ctx->deviceId, hCallback);
 
     switch (cmd) {
@@ -518,17 +557,25 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             else if (IsWordEq(token, L"from")) {
                 fdwCommand |= MCI_FROM;
                 token = GetNextToken(&checkText);
-                if (!(token[1] == ':' || token[2] == ':')) isTrack = TRUE;
+                if (IsWordEq(token, L"track")) {
+                    isTrack = TRUE;
+                    token = GetNextToken(&checkText);
+                }
+                else if (!(token[1] == ':' || token[2] == ':')) isTrack = TRUE;
                 if (!token || !ParseMciInteger(token, &dwParam.dwFrom)) {
-                    *ret = MCIERR_BAD_INTEGER; return TRUE;
+                    *ret = MCIERR_BAD_INTEGER; return !isAll;;
                 }
             }
             else if (IsWordEq(token, L"to")) {
                 fdwCommand |= MCI_TO;
                 token = GetNextToken(&checkText);
+                if (IsWordEq(token, L"track")) {
+                    isTrack = TRUE;
+                    token = GetNextToken(&checkText);
+                }
                 if (!(token[1] == ':' || token[2] == ':')) isTrack = TRUE;
                 if (!token || !ParseMciInteger(token, &dwParam.dwTo)) {
-                    *ret = MCIERR_BAD_INTEGER; return TRUE;
+                    *ret = MCIERR_BAD_INTEGER; return !isAll;;
                 }
             }
         }
@@ -572,7 +619,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                     else {
                         fdwCommand |= MCI_TO;
                         if (!ParseMciInteger(token, &dwParam.dwTo)) {
-                            *ret = MCIERR_BAD_INTEGER; return TRUE;
+                            *ret = MCIERR_BAD_INTEGER; return !isAll;;
                         }
                     }
                 }
@@ -584,14 +631,17 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
     case CMD_SET: {
         MCI_SET_PARMS dwParam{ 0, };
         dwParam.dwCallback = (DWORD_PTR)hCallback;
+        BOOL isFail = FALSE;
 
-        while ((token = GetNextToken(&checkText)) != NULL) {
+        while (isFail || ((token = GetNextToken(&checkText)) != NULL)) {
+            isFail = FALSE;
             if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
             else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
             else if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format")) {
                 if (IsWordEq(token, L"time")) {
                     token = GetNextToken(&checkText);
-                    if (!token || !IsWordEq(token, L"format")) { continue; }
+                    if (!token) { continue; }
+                    else if (!IsWordEq(token, L"format")) { isFail = TRUE; continue; }
                 }
                 fdwCommand |= MCI_SET_TIME_FORMAT;
                 token = GetNextToken(&checkText);
@@ -601,25 +651,25 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                     dwParam.dwTimeFormat = MCI_FORMAT_MSF;
                 else if (token && (IsWordEq(token, L"ms") || IsWordEq(token, L"milliseconds")))
                     dwParam.dwTimeFormat = MCI_FORMAT_MILLISECONDS;
-                else { *ret = MCIERR_BAD_CONSTANT; return TRUE; }
+                else { *ret = MCIERR_BAD_CONSTANT; return !isAll;; }
             }
             else if (IsWordEq(token, L"audio")) {
                 token = GetNextToken(&checkText); // all/left/right
                 if (token && IsWordEq(token, L"all")) dwParam.dwAudio = MCI_SET_AUDIO_ALL;
                 else if (token && IsWordEq(token, L"left")) dwParam.dwAudio = MCI_SET_AUDIO_LEFT;
                 else if (token && IsWordEq(token, L"right")) dwParam.dwAudio = MCI_SET_AUDIO_RIGHT;
-                else { *ret = MCIERR_BAD_CONSTANT; return TRUE; }
+                else { *ret = MCIERR_BAD_CONSTANT; return !isAll;; }
 
                 token = GetNextToken(&checkText); // on/off
                 if (token && IsWordEq(token, L"on")) fdwCommand |= MCI_SET_ON;
                 else if (token && IsWordEq(token, L"off")) fdwCommand |= MCI_SET_OFF;
-                else { *ret = MCIERR_MISSING_PARAMETER; return TRUE; }
+                else { *ret = MCIERR_MISSING_PARAMETER; return !isAll;; }
             }
             else if (IsWordEq(token, L"door")) {
                 token = GetNextToken(&checkText); // open/closed
                 if (token && IsWordEq(token, L"open")) fdwCommand |= MCI_SET_DOOR_OPEN;
                 else if (token && IsWordEq(token, L"closed")) fdwCommand |= MCI_SET_DOOR_CLOSED;
-                else { *ret = MCIERR_BAD_CONSTANT; return TRUE; }
+                else { *ret = MCIERR_BAD_CONSTANT; return !isAll;; }
             }
         }
         *ret = Device::Set(ctx, fdwCommand, (DWORD_PTR)&dwParam);
@@ -628,8 +678,10 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
     case CMD_STATUS: {
         MCI_STATUS_PARMS dwParam{ 0, };
         dwParam.dwCallback = (DWORD_PTR)hCallback;
+        BOOL isFail = FALSE;
 
-        while ((token = GetNextToken(&checkText)) != NULL) {
+        while (isFail || ((token = GetNextToken(&checkText)) != NULL)) {
+            isFail = FALSE;
             if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
             else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
             else if (IsWordEq(token, L"length")) {
@@ -641,16 +693,19 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             else if (IsWordEq(token, L"number") || IsWordEq(token, L"number_of_tracks")) {
                 if (IsWordEq(token, L"number")) {
                     token = GetNextToken(&checkText);
-                    if (!token || !IsWordEq(token, L"of")) { continue; }
+                    if (!token) { continue; }
+                    else if (!IsWordEq(token, L"of")) { isFail = TRUE; continue; }
                     token = GetNextToken(&checkText);
-                    if (!token || !IsWordEq(token, L"tracks")) { continue; }
+                    if (!token) { continue; }
+                    else if (!IsWordEq(token, L"tracks")) { isFail = TRUE; continue; }
                 }
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_NUMBER_OF_TRACKS;
             }
             else if (IsWordEq(token, L"current") || IsWordEq(token, L"current_track")) {
                 if (IsWordEq(token, L"current")) {
                     token = GetNextToken(&checkText);
-                    if (!token || !IsWordEq(token, L"track")) { continue; }
+                    if (!token) { continue; }
+                    else if (!IsWordEq(token, L"track")) { isFail = TRUE; continue; }
                 }
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_CURRENT_TRACK;
             }
@@ -660,14 +715,16 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             else if (IsWordEq(token, L"media") || IsWordEq(token, L"media_present")) {
                 if (IsWordEq(token, L"media")) {
                     token = GetNextToken(&checkText);
-                    if (!token || !IsWordEq(token, L"present")) { continue; }
+                    if (!token) { continue; }
+                    else if (!IsWordEq(token, L"present")) { isFail = TRUE; continue; }
                 }
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_MEDIA_PRESENT;
             }
             else if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format")) {
                 if (IsWordEq(token, L"time")) {
                     token = GetNextToken(&checkText);
-                    if (!token || !IsWordEq(token, L"format")) { continue; }
+                    if (!token) { continue; }
+                    else if (!IsWordEq(token, L"format")) { isFail = TRUE; continue; }
                 }
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_TIME_FORMAT;
             }
@@ -677,14 +734,14 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 token = GetNextToken(&checkText);
                 DWORD trackNum;
                 if (!token || !ParseMciInteger(token, &trackNum)) {
-                    *ret = MCIERR_BAD_INTEGER; return TRUE;
+                    *ret = MCIERR_BAD_INTEGER; return !isAll;;
                 }
                 dwParam.dwTrack = trackNum;
             }
         }
 
         if (!(fdwCommand & MCI_STATUS_ITEM)) {
-            *ret = MCIERR_MISSING_PARAMETER; return TRUE;
+            *ret = MCIERR_MISSING_PARAMETER; return !isAll;;
         }
 
         *ret = Device::Status(ctx, fdwCommand, (DWORD_PTR)&dwParam);
@@ -705,7 +762,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 }
                 break;
             case MCI_STATUS_MEDIA_PRESENT:
-                lstrcpynW(lpstrReturn, (dwParam.dwReturn ? L"TRUE" : L"FALSE"), uReturnLength);
+                lstrcpynW(lpstrReturn, (dwParam.dwReturn ? L"true" : L"false"), uReturnLength);
                 break;
             case MCI_STATUS_TIME_FORMAT:
                 switch (dwParam.dwReturn) {
@@ -738,7 +795,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             else if (IsWordEq(token, L"upc")) fdwCommand |= MCI_INFO_MEDIA_UPC;
             else if (IsWordEq(token, L"identity")) fdwCommand |= MCI_INFO_MEDIA_IDENTITY;
         }
-        if (!fdwCommand) { *ret = MCIERR_MISSING_PARAMETER; return TRUE; }
+        if (!fdwCommand) { *ret = MCIERR_MISSING_PARAMETER; return !isAll;; }
 
         *ret = Device::Info(ctx, fdwCommand, (DWORD_PTR)&dwParam);
 
@@ -773,12 +830,92 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 }
             }
         }
-        if (!fdwCommand) { *ret = MCIERR_MISSING_PARAMETER; return TRUE; }
+        if (!fdwCommand) { *ret = MCIERR_MISSING_PARAMETER; return !isAll;; }
 
         *ret = Device::SysInfo(ctx, fdwCommand, (DWORD_PTR)&dwParam);
 
         if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
             lstrcpynW(lpstrReturn, str, uReturnLength);
+        }
+        break;
+    }
+    case CMD_GETDEVCAPS: {
+        MCI_GETDEVCAPS_PARMS dwParam{ 0, };
+        dwParam.dwCallback = (DWORD_PTR)hCallback;
+        BOOL isFail = FALSE;
+
+        while (isFail || ((token = GetNextToken(&checkText)) != NULL)) {
+            isFail = FALSE;
+            if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
+            else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"can")) {
+                token = GetNextToken(&checkText);
+                if (!token) { continue; }
+                else if (IsWordEq(token, L"eject")) {
+                    fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                    dwParam.dwItem = MCI_GETDEVCAPS_CAN_EJECT;
+                }
+                else if (IsWordEq(token, L"play")) {
+                    fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                    dwParam.dwItem = MCI_GETDEVCAPS_CAN_PLAY;
+                }
+                else if (IsWordEq(token, L"record")) {
+                    fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                    dwParam.dwItem = MCI_GETDEVCAPS_CAN_RECORD;
+                }
+                else if (IsWordEq(token, L"save")) {
+                    fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                    dwParam.dwItem = MCI_GETDEVCAPS_CAN_SAVE;
+                }
+                else { isFail = TRUE; continue; }
+            }
+            else if (IsWordEq(token, L"compound")) {
+                token = GetNextToken(&checkText);
+                if (!token) { continue; }
+                else if (!IsWordEq(token, L"device")) { isFail = TRUE; continue; }
+                fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                dwParam.dwItem = MCI_GETDEVCAPS_COMPOUND_DEVICE;
+            }
+            else if (IsWordEq(token, L"device")) {
+                token = GetNextToken(&checkText);
+                if (!token) { continue; }
+                else if (!IsWordEq(token, L"type")) { isFail = TRUE; continue; }
+                fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                dwParam.dwItem = MCI_GETDEVCAPS_DEVICE_TYPE;
+            }
+            else if (IsWordEq(token, L"has")) {
+                token = GetNextToken(&checkText);
+                if (!token) { continue; }
+                else if (IsWordEq(token, L"audio")) {
+                    fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                    dwParam.dwItem = MCI_GETDEVCAPS_HAS_AUDIO;
+                }
+                else if (IsWordEq(token, L"video")) {
+                    fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                    dwParam.dwItem = MCI_GETDEVCAPS_HAS_VIDEO;
+                }
+                else { isFail = TRUE; continue; }
+            }
+            else if (IsWordEq(token, L"uses")) {
+                token = GetNextToken(&checkText);
+                if (!token) { continue; }
+                else if (!IsWordEq(token, L"files")) { isFail = TRUE; continue; }
+                fdwCommand |= MCI_GETDEVCAPS_ITEM;
+                dwParam.dwItem = MCI_GETDEVCAPS_USES_FILES;
+            }
+        }
+
+        *ret = Device::DevCaps(ctx, fdwCommand, (DWORD_PTR)&dwParam);
+
+        if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
+            // Format return string
+            switch (dwParam.dwItem) {
+            case MCI_GETDEVCAPS_DEVICE_TYPE:
+                lstrcpynW(lpstrReturn, L"cdaudio", uReturnLength); break;
+            default:
+                lstrcpynW(lpstrReturn, dwParam.dwReturn ? L"true" : L"false", uReturnLength); break;
+                break;
+            }
         }
         break;
     }
@@ -796,7 +933,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
         break;
     }
 
-    return TRUE;
+    return !isAll;;
 }
 
 // mciSendCommandW connection function

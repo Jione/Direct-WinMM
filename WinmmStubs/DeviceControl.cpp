@@ -24,16 +24,61 @@ namespace {
         }
     }
 
+    static BOOL ConvertAbsoluteMsToTrackMs(DWORD absoluteMs, int* outTrack, DWORD* outRelativeMs) {
+        if (!outTrack || !outRelativeMs) return FALSE;
+
+        int numTracks = 0;
+        if (!AudioEngine::GetDiscNumTracks(&numTracks) || numTracks == 0) {
+            return FALSE; // No tracks on disc
+        }
+
+        DWORD cumulativeMs = 0;
+        for (int track = 1; track <= numTracks; ++track) {
+            DWORD trackLengthMs = 0;
+            if (!AudioEngine::GetTrackLengthMs(track, &trackLengthMs)) {
+                return FALSE; // Failed to get track length
+            }
+
+            // Check if the time falls within this track's range
+            // [cumulativeMs, cumulativeMs + trackLengthMs)
+            if (absoluteMs >= cumulativeMs && absoluteMs < (cumulativeMs + trackLengthMs)) {
+                *outTrack = track;
+                *outRelativeMs = absoluteMs - cumulativeMs;
+                return TRUE;
+            }
+            cumulativeMs += trackLengthMs;
+        }
+
+        // Handle edge case: time is exactly the end of the disc
+        if (absoluteMs == cumulativeMs) {
+            *outTrack = numTracks;
+            DWORD lastTrackLen = 0;
+            AudioEngine::GetTrackLengthMs(numTracks, &lastTrackLen);
+            *outRelativeMs = lastTrackLen; // Position at the very end
+            return TRUE;
+        }
+
+        return FALSE; // Time is out of range (past the end of the disc)
+    }
+
     static BOOL ResolvePlayRange(DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam, int* outFromTr, DWORD* outFromMs, int* outToTr, DWORD* outToMs) {
         if (!outFromTr || !outFromMs || !outToTr || !outToMs) return FALSE;
 
+        // Default: Start of track 1
         *outFromTr = 1;
         *outFromMs = 0;
+        // Default: End of disc (will be set explicitly later)
         *outToTr = 1;
-        *outToMs = 0xFFFFFFFF; // To the end
+        *outToMs = 0xFFFFFFFF;
 
-        // If no struct, keep defaults (String paths handled by Controller / or play with defaults)
-        if (!dwParam) return TRUE;
+        // If no struct (e.g. "play cdaudio"), set TO to end of disc and return
+        if (!dwParam) {
+            int numTracks = 0;
+            if (!AudioEngine::GetDiscNumTracks(&numTracks) || numTracks == 0) numTracks = 1;
+            *outToTr = numTracks;
+            *outToMs = 0xFFFFFFFF;
+            return TRUE;
+        }
 
         const MCI_PLAY_PARMS* p = (const MCI_PLAY_PARMS*)dwParam;
         UINT tf = DeviceInfo::GetDeviceTimeFormat(ctx->deviceId);
@@ -42,17 +87,22 @@ namespace {
         if (fdw & MCI_FROM) {
             DWORD v = p->dwFrom;
             switch (tf) {
-            case MCI_FORMAT_MILLISECONDS:
-                *outFromTr = 1;
-                *outFromMs = v;
+            case MCI_FORMAT_MILLISECONDS: {
+                DWORD absoluteMs = v;
+                if (!ConvertAbsoluteMsToTrackMs(absoluteMs, outFromTr, outFromMs)) {
+                    return MCIERR_OUTOFRANGE; // Time is not on the disc
+                }
                 break;
+            }
             case MCI_FORMAT_MSF: {
                 BYTE mm = MCI_MSF_MINUTE(v);
                 BYTE ss = MCI_MSF_SECOND(v);
                 BYTE ff = MCI_MSF_FRAME(v);
                 DWORD frames = (DWORD)mm * 60 * 75 + (DWORD)ss * 75 + (DWORD)ff;
-                *outFromTr = 1;
-                *outFromMs = FramesToMilliseconds(frames);
+                DWORD absoluteMs = FramesToMilliseconds(frames);
+                if (!ConvertAbsoluteMsToTrackMs(absoluteMs, outFromTr, outFromMs)) {
+                    return MCIERR_OUTOFRANGE; // Time is not on the disc
+                }
                 break;
             }
             case MCI_FORMAT_TMSF: {
@@ -74,17 +124,22 @@ namespace {
         if (fdw & MCI_TO) {
             DWORD v = p->dwTo;
             switch (tf) {
-            case MCI_FORMAT_MILLISECONDS:
-                *outToTr = *outFromTr; // Assumed to be the same track
-                *outToMs = v;
+            case MCI_FORMAT_MILLISECONDS: {
+                DWORD absoluteMs = v;
+                if (!ConvertAbsoluteMsToTrackMs(absoluteMs, outToTr, outToMs)) {
+                    return MCIERR_OUTOFRANGE;
+                }
                 break;
+            }
             case MCI_FORMAT_MSF: {
                 BYTE mm = MCI_MSF_MINUTE(v);
                 BYTE ss = MCI_MSF_SECOND(v);
                 BYTE ff = MCI_MSF_FRAME(v);
                 DWORD frames = (DWORD)mm * 60 * 75 + (DWORD)ss * 75 + (DWORD)ff;
-                *outToTr = *outFromTr;
-                *outToMs = FramesToMilliseconds(frames);
+                DWORD absoluteMs = FramesToMilliseconds(frames);
+                if (!ConvertAbsoluteMsToTrackMs(absoluteMs, outToTr, outToMs)) {
+                    return MCIERR_OUTOFRANGE;
+                }
                 break;
             }
             case MCI_FORMAT_TMSF: {
@@ -101,21 +156,15 @@ namespace {
                 return FALSE;
             }
         }
-
-        // If TO is missing, play by track only.
+        // If TO is missing, play to the end of the disc.
         else {
-            switch (tf) {
-            case MCI_FORMAT_MILLISECONDS:
-            case MCI_FORMAT_TMSF:
-                *outToTr = *outFromTr;
-                *outToMs = 0xFFFFFFFF; // Use 0xFFFFFFFF for "to end"
-                break;
-            case MCI_FORMAT_MSF: {
-                *outToTr = 99; // Play to end of disc
-                *outToMs = 0xFFFFFFFF;
-                break;
+            int numTracks = 0;
+            if (!AudioEngine::GetDiscNumTracks(&numTracks) || numTracks == 0) {
+                numTracks = 1; // Failsafe
             }
-            }
+
+            *outToTr = numTracks;
+            *outToMs = 0xFFFFFFFF; // Use 0xFFFFFFFF for "to end"
         }
 
         return TRUE;
@@ -132,6 +181,18 @@ namespace Device {
         // Register context
         ctx->isOpen = TRUE;
         ctx->isCDA = TRUE;
+        if (fdw & MCI_OPEN_ELEMENT) {
+            const MCI_OPEN_PARMSW* p = (const MCI_OPEN_PARMSW*)dwParam;
+            if (p && p->lpstrElementName && p->lpstrElementName[0]) {
+                DeviceInfo::SetElement(ctx->deviceId, p->lpstrElementName);
+            }
+        }
+        else if (fdw & MCI_OPEN_ELEMENT_ID) {
+            const MCI_OPEN_PARMSW* p = (const MCI_OPEN_PARMSW*)dwParam;
+            if (p) {
+                DeviceInfo::SetElementId(ctx->deviceId, (DWORD)p->lpstrElementName);
+            }
+        }
         if (fdw & MCI_NOTIFY) {
             NotifyManager::LazyNotify(ctx->deviceId, ctx->notifyHwnd, MCI_NOTIFY_SUCCESSFUL);
         }
@@ -476,6 +537,60 @@ namespace Device {
             // Other MCI_SYSINFO flags (like MCI_SYSINFO_INSTALLNAME) not supported
             ret = MCIERR_UNSUPPORTED_FUNCTION;
         }
+
+        if (ret == MMSYSERR_NOERROR && (fdw & MCI_NOTIFY)) {
+            NotifyManager::LazyNotify(ctx->deviceId, ctx->notifyHwnd, MCI_NOTIFY_SUCCESSFUL);
+        }
+        return ret;
+    }
+
+    MMRESULT DevCaps(DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam) {
+        if (!ctx || !ctx->isOpen) return MCIERR_DEVICE_NOT_READY;
+        if (!dwParam) return MCIERR_MISSING_PARAMETER;
+
+        MCI_GETDEVCAPS_PARMS* p = (MCI_GETDEVCAPS_PARMS*)dwParam;
+        MMRESULT ret = MMSYSERR_NOERROR;
+        DWORD item = 0;
+        p->dwReturn = FALSE;
+
+        if (fdw & MCI_GETDEVCAPS_ITEM) {
+            item = p->dwItem;
+        }
+
+        if (item == 0) {
+            ret = MCIERR_MISSING_PARAMETER;
+        }
+        else if (item == MCI_GETDEVCAPS_CAN_RECORD) {
+            // p->dwReturn = FALSE
+        }
+        else if (item == MCI_GETDEVCAPS_HAS_AUDIO) {
+            p->dwReturn = TRUE;
+        }
+        else if (item == MCI_GETDEVCAPS_HAS_VIDEO) {
+            // p->dwReturn = FALSE
+        }
+        else if (item == MCI_GETDEVCAPS_DEVICE_TYPE) {
+            p->dwReturn = MCI_DEVTYPE_CD_AUDIO;
+        }
+        else if (item == MCI_GETDEVCAPS_USES_FILES) {
+            // p->dwReturn = FALSE
+        }
+        else if (item == MCI_GETDEVCAPS_COMPOUND_DEVICE) {
+            p->dwReturn = TRUE;
+        }
+        else if (item == MCI_GETDEVCAPS_CAN_EJECT) {
+            p->dwReturn = TRUE;
+        }
+        else if (item == MCI_GETDEVCAPS_CAN_PLAY) {
+            p->dwReturn = TRUE;
+        }
+        else if (item == MCI_GETDEVCAPS_CAN_SAVE) {
+            // p->dwReturn = FALSE
+        }
+        else {
+            ret = MCIERR_UNSUPPORTED_FUNCTION;
+        }
+        // Other MCI_GETDEVCAPS flags (like MCI_DGV_GETDEVCAPS_CAN_FREEZE) not supported
 
         if (ret == MMSYSERR_NOERROR && (fdw & MCI_NOTIFY)) {
             NotifyManager::LazyNotify(ctx->deviceId, ctx->notifyHwnd, MCI_NOTIFY_SUCCESSFUL);

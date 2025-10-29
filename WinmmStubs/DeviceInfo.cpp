@@ -33,12 +33,12 @@ namespace {
         c->isCDA = FALSE;
         c->openFlags = 0;
         c->elementId = 0;
+        c->element[0] = L'\0';
         c->alias[0] = L'\0';
         c->timeFormat = DT_DEFAULT_TIMEFORMAT; // Default MSF
         c->notifyHwnd = NULL;
         c->hCreatorThreadId = NULL;
         c->hOpeningThreadId = NULL;
-        c->reserved = 0;
     }
 
     static void FillDeviceInfo() {
@@ -171,12 +171,41 @@ namespace DeviceInfo {
         return ret;
     }
 
+    DeviceContext* FindByElement(LPCWSTR element) {
+        if (!gInited || !element || !element[0]) return NULL;
+        DeviceContext* ret = NULL;
+        Lock();
+        for (int i = 0; i < DT_MAX_DEVICES; ++i) {
+            if (!gTable[i].inUse) continue;
+            if (lstrcmpiW(gTable[i].element, element) == 0) {
+                ret = &gTable[i];
+                break;
+            }
+        }
+        Unlock();
+        return ret;
+    }
+
     BOOL SetAlias(MCIDEVICEID deviceId, LPCWSTR alias) {
         if (!gInited || !alias) return FALSE;
         Lock();
         for (int i = 0; i < DT_MAX_DEVICES; ++i) {
             if (gTable[i].inUse && gTable[i].deviceId == deviceId) {
                 lstrcpynW(gTable[i].alias, alias, ARRAYSIZE(gTable[i].alias));
+                Unlock();
+                return TRUE;
+            }
+        }
+        Unlock();
+        return FALSE;
+    }
+
+    BOOL SetElement(MCIDEVICEID deviceId, LPCWSTR element) {
+        if (!gInited || !element) return FALSE;
+        Lock();
+        for (int i = 0; i < DT_MAX_DEVICES; ++i) {
+            if (gTable[i].inUse && gTable[i].deviceId == deviceId) {
+                lstrcpynW(gTable[i].element, element, ARRAYSIZE(gTable[i].element));
                 Unlock();
                 return TRUE;
             }

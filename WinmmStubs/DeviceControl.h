@@ -14,5 +14,6 @@ namespace Device {
     MMRESULT Status (DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam);
     MMRESULT Info   (DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam);
     MMRESULT SysInfo(DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam);
+    MMRESULT DevCaps(DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam);
     MMRESULT Close  (DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam);
 }
