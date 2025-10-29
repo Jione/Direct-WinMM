@@ -161,8 +161,8 @@ LRESULT CALLBACK CustomSlider::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARA
         }
         return 0;
     case WM_KEYDOWN:
-        if (wParam == VK_LEFT) { SetValue(hWnd, st->value - 1, TRUE); return 0; }
-        if (wParam == VK_RIGHT) { SetValue(hWnd, st->value + 1, TRUE); return 0; }
+        if (wParam == VK_LEFT || wParam == VK_DOWN) { SetValue(hWnd, st->value - 1, TRUE); return 0; }
+        if (wParam == VK_RIGHT || wParam == VK_UP) { SetValue(hWnd, st->value + 1, TRUE); return 0; }
         return 0;
     case WM_DESTROY: {
         SliderState* s = GetState(hWnd);

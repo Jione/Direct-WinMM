@@ -103,6 +103,32 @@ namespace {
             UpdateValueText(percent);
             return 0;
         }
+        case WM_MOUSEWHEEL: {
+            int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+            int currentPercent = CustomSlider::GetValue(g_hwndCtrl);
+            int newPercent = currentPercent;
+
+            if (delta > 0) {
+                newPercent += 2; // Scroll up, increase volume
+            }
+            else if (delta < 0) {
+                newPercent -= 2; // Scroll down, decrease volume
+            }
+
+            CustomSlider::SetValue(g_hwndCtrl, newPercent, TRUE);
+            return 0;
+        }
+        case WM_KEYDOWN: {
+            int currentPercent = CustomSlider::GetValue(g_hwndCtrl);
+            int newPercent = currentPercent;
+
+            if (wParam == VK_LEFT || wParam == VK_DOWN) { newPercent -= 1; }
+            else if (wParam == VK_RIGHT || wParam == VK_UP) { newPercent += 1; }
+            else { break; }
+
+            CustomSlider::SetValue(g_hwndCtrl, newPercent, TRUE);
+            return 0;
+        }
         case WM_ERASEBKGND:
             return 1;
         case WM_PAINT: {
