@@ -11,6 +11,7 @@ namespace {
     static HWND g_hwndValue = NULL;
     static HWND g_hwndCtrl = NULL; // CustomSlider
     static BOOL g_dragging = false;
+    static HWND g_hwndTitle = NULL;
 
     static HICON g_hIconSpeaker = NULL;
     static HICON g_hIconSpeakerMute = NULL;
@@ -19,9 +20,12 @@ namespace {
     // Layout constants (edit in one place)
     struct Layout {
         int width = 260;
-        int height = 60;
+        int height = 90;
+        int topPad = 10;
+        int titleH = 20;
+        int controlAreaY = 30;
         int padL = 10;
-        int iconY = 21;  // Icon top
+        int iconY = controlAreaY + 21;  // Icon top
         int iconW = 24;
         int iconH = 18;
         int valW = 32;  // Right-side number width
@@ -84,6 +88,13 @@ namespace {
         case WM_CREATE: {
             HFONT hFont = CreateUiFont();
 
+            // Title
+            g_hwndTitle = CreateWindowExW(0, L"STATIC", L"CD-Audio Volume Control",
+                WS_CHILD | WS_VISIBLE | SS_CENTER,
+                L.padL, L.topPad, L.width - (2 * L.padL), L.titleH,
+                hwnd, (HMENU)IDC_VOLUMETITLE, GetModuleHandle(NULL), NULL);
+            if (g_hwndTitle && hFont) SendMessage(g_hwndTitle, WM_SETFONT, (WPARAM)hFont, TRUE);
+
             // Icon
             g_hwndIcon = CreateWindowExW(0, L"STATIC", NULL, WS_CHILD | WS_VISIBLE | SS_ICON | SS_NOTIFY,
                 L.padL, L.iconY, L.iconW, L.iconH, hwnd, (HMENU)IDC_VOLUMEICON, GetModuleHandle(NULL), NULL);
@@ -96,7 +107,7 @@ namespace {
 
             // Right-side number
             int valX = L.width - L.padL - L.valW;
-            int valY = (L.height - L.valH) / 2;
+            int valY = L.iconY;
             g_hwndValue = CreateWindowExW(0, L"STATIC", L"100",
                 WS_CHILD | WS_VISIBLE | SS_RIGHT,
                 valX, valY, L.valW, L.valH, hwnd, (HMENU)IDC_VOLUMETEXT, GetModuleHandle(NULL), NULL);
@@ -105,7 +116,8 @@ namespace {
             // Center custom slider
             int ctrlX = L.padL + L.iconW + L.gap;
             int ctrlW = (L.width - L.padL - L.valW - L.gap) - ctrlX;
-            g_hwndCtrl = CustomSlider::Create(GetModuleHandle(NULL), hwnd, ctrlX, (L.height - L.ctrlH) / 2, ctrlW, L.ctrlH, IDC_VOLUMESLIDER);
+            int ctrlY = L.controlAreaY + (L.height - L.controlAreaY - L.ctrlH) / 2;
+            g_hwndCtrl = CustomSlider::Create(GetModuleHandle(NULL), hwnd, ctrlX, ctrlY, ctrlW, L.ctrlH, IDC_VOLUMESLIDER);
             ApplyThemeToCustomSlider(g_hwndCtrl);
             CustomSlider::SetRange(g_hwndCtrl, 0, 100);
 
@@ -186,7 +198,7 @@ namespace {
             return (LRESULT)hbrBg;
         }
         case WM_DESTROY:
-            g_hwndSlider = g_hwndIcon = g_hwndValue = g_hwndCtrl = NULL;
+            g_hwndSlider = g_hwndIcon = g_hwndValue = g_hwndCtrl = g_hwndTitle = NULL;
             g_hIconSpeakerMute = g_hIconSpeaker = NULL;
             return 0;
         }
@@ -218,7 +230,7 @@ namespace VolumeSlider {
             SLIDER_WINDOW_CLASS,
             L"WinMM Stubs Volume Control",
             WS_POPUP,
-            0, 0, 260, 60,
+            0, 0, L.width, L.height,
             hParent, NULL, hInstance, NULL);
 
         return g_hwndSlider;
@@ -252,7 +264,7 @@ namespace VolumeSlider {
 
     void UpdateDisplay(HWND hwndSlider) {
         if (!hwndSlider || !IsWindow(hwndSlider)) return;
-        if (!g_hwndCtrl || !g_hwndValue) return;
+        if (!g_hwndCtrl || !g_hwndValue || !g_hwndIcon || !g_hwndTitle) return;
 
         const int percent = RegistryManager::GetVolumePercent();
         CustomSlider::SetValue(g_hwndCtrl, percent, FALSE);

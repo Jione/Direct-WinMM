@@ -13,3 +13,4 @@
 #define IDC_VOLUMESLIDER    2001 // Trackbar control ID
 #define IDC_VOLUMETEXT      2002 // Static text for percentage ID
 #define IDC_VOLUMEICON      2003 // Static control for volume icon
+#define IDC_VOLUMETITLE     2004 // Static text for the title
