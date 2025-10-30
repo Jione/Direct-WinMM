@@ -17,4 +17,9 @@ namespace RegistryManager {
     // Helper: Sets volume from percentage 0-100
     BOOL SetVolumePercent(int percent);
 
+    // Gets mute state (TRUE if muted, FALSE otherwise)
+    BOOL GetMute();
+    // Sets mute state
+    BOOL SetMute(BOOL isMute);
+
 } // namespace RegistryManager

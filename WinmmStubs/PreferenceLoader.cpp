@@ -8,10 +8,12 @@
 // --- Configuration ---
 const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs"; // Relative to HKCU
 const wchar_t* const VOLUME_VALUE_NAME = L"MasterVolume";
+const wchar_t* const MUTE_VALUE_NAME = L"isMute";
 const wchar_t* const EXE_NAME = L"WinmmVol.exe";
 const wchar_t* const MUTEX_NAME = L"WinMM-Stubs Volume Control";
 const wchar_t* const EXE_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
 const UINT WM_EXIT_APP = WM_APP + 1; // Custom message to signal the EXE
+const DWORD DEFAULT_MUTE_DWORD = 0;
 
 namespace {
     // --- Internal State ---
@@ -45,8 +47,6 @@ namespace {
      * @brief The background thread function that monitors registry changes.
      */
     static unsigned int __stdcall MonitorThreadProc(void* /*pParam*/) {
-        bool firstNotify = true; // Skip first auto-notify on registration
-
         while (true) {
             // Register for change notification
             if (g_hRegKey && g_hRegChangeEvent) {
@@ -71,34 +71,40 @@ namespace {
                 break;
             }
             else if (waitResult == WAIT_OBJECT_0 + 1) {
-                // Registry change event signaled
-                if (firstNotify) {
-                    firstNotify = false; // Ignore the first notification right after registration
-                    ResetEvent(g_hRegChangeEvent); // Reset event and re-register
-                    continue;
-                }
-
                 Lock();
                 if (g_hRegKey) {
+                    // Read both values to determine the final volume
                     DWORD dwVolume = 0;
-                    DWORD dwSize = sizeof(dwVolume);
-                    DWORD dwType = 0;
-                    LSTATUS regStatus = RegQueryValueExW(g_hRegKey,
-                        VOLUME_VALUE_NAME,
-                        NULL,
-                        &dwType,
-                        (LPBYTE)&dwVolume,
-                        &dwSize);
+                    DWORD dwSizeVol = sizeof(dwVolume);
+                    DWORD dwTypeVol = 0;
+                    LSTATUS volStatus = RegQueryValueExW(g_hRegKey,
+                        VOLUME_VALUE_NAME, NULL, &dwTypeVol, (LPBYTE)&dwVolume, &dwSizeVol);
 
-                    if (regStatus == ERROR_SUCCESS && dwType == REG_DWORD) {
-                        float newVolume = VolumeDwordToFloat(dwVolume);
-                        // Apply the volume change (AudioEngine must be thread-safe)
-                        AudioEngine::SetMasterVolume(newVolume);
-                        dprintf(L"Registry change detected. New Volume: %f (0x%X)", newVolume, dwVolume);
+                    DWORD dwMute = 0;
+                    DWORD dwSizeMute = sizeof(dwMute);
+                    DWORD dwTypeMute = 0;
+                    LSTATUS muteStatus = RegQueryValueExW(g_hRegKey,
+                        MUTE_VALUE_NAME, NULL, &dwTypeMute, (LPBYTE)&dwMute, &dwSizeMute);
+
+                    // Use defaults on failure (though Initialize should prevent this)
+                    if (volStatus != ERROR_SUCCESS || dwTypeVol != REG_DWORD) {
+                        dwVolume = VolumeFloatToDword(0.0f); // Fallback
+                    }
+                    if (muteStatus != ERROR_SUCCESS || dwTypeMute != REG_DWORD) {
+                        dwMute = DEFAULT_MUTE_DWORD; // 0
+                    }
+
+                    // Apply the logic: if muted, volume is 0. If not, use master volume.
+                    float finalVolume;
+                    if (dwMute == 1) {
+                        finalVolume = 0.0f;
+                        dprintf(L"Registry change detected. isMute=1. Setting engine volume to 0.0.");
                     }
                     else {
-                        dprintf(L"Registry change detected, but failed to query value or wrong type. Error: %d", regStatus);
+                        finalVolume = VolumeDwordToFloat(dwVolume);
+                        dprintf(L"Registry change detected. isMute=0. Setting engine volume to %f (0x%X).", finalVolume, dwVolume);
                     }
+                    AudioEngine::SetMasterVolume(finalVolume);
                 }
                 ResetEvent(g_hRegChangeEvent); // Reset the event *before* re-registering
                 Unlock();
@@ -222,25 +228,39 @@ namespace PreferenceLoader {
                     success = false;
                 }
                 else {
-                    // No need to call SetMasterVolume here
                     dprintf(L"Created registry value '%s' with initial volume %f (0x%X)", VOLUME_VALUE_NAME, currentVolume, dwVolume);
                 }
             }
-            else if (regStatus == ERROR_SUCCESS && dwType == REG_DWORD) {
-                // Value exists, apply it to the engine
-                float initialVolume = VolumeDwordToFloat(dwVolume);
-                AudioEngine::SetMasterVolume(initialVolume);
-                dprintf(L"Read initial volume %f (0x%X) from registry.", initialVolume, dwVolume);
+            else if (regStatus != ERROR_SUCCESS || dwType != REG_DWORD) {
+                // Error reading value or wrong type, overwrite with default
+                dprintf(L"Failed to query registry value '%s' or wrong type. Overwriting...", VOLUME_VALUE_NAME);
+                float currentVolume = AudioEngine::GetMasterVolume();
+                dwVolume = VolumeFloatToDword(currentVolume);
+                RegSetValueExW(g_hRegKey, VOLUME_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwVolume, sizeof(dwVolume));
+            }
+            // At this point, dwVolume holds the last saved master volume
+
+            // Check/Create Mute Value
+            DWORD dwMute = 0;
+            dwSize = sizeof(dwMute);
+            regStatus = RegQueryValueExW(g_hRegKey, MUTE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwMute, &dwSize);
+
+            if (regStatus == ERROR_FILE_NOT_FOUND || regStatus != ERROR_SUCCESS || dwType != REG_DWORD) {
+                dprintf(L"Registry value '%s' not found or invalid. Creating...", MUTE_VALUE_NAME);
+                dwMute = DEFAULT_MUTE_DWORD; // 0 (not muted)
+                RegSetValueExW(g_hRegKey, MUTE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwMute, sizeof(dwMute));
+            }
+            // At this point, dwMute holds the last saved mute state
+
+            // Apply Initial Volume Based on Mute State
+            if (dwMute == 1) {
+                AudioEngine::SetMasterVolume(0.0f);
+                dprintf(L"Initial state: Muted. Set volume to 0.0. (Master level is %f)", VolumeDwordToFloat(dwVolume));
             }
             else {
-                // Error reading value or wrong type
-                dprintf(L"Failed to query registry value '%s' or wrong type. Error: %d, Type: %d", VOLUME_VALUE_NAME, regStatus, dwType);
-
-                if (regStatus != ERROR_SUCCESS) {
-                    float currentVolume = AudioEngine::GetMasterVolume();
-                    dwVolume = VolumeFloatToDword(currentVolume);
-                    RegSetValueExW(g_hRegKey, VOLUME_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwVolume, sizeof(dwVolume));
-                }
+                float initialVolume = VolumeDwordToFloat(dwVolume);
+                AudioEngine::SetMasterVolume(initialVolume);
+                dprintf(L"Initial state: Unmuted. Set volume to %f.", initialVolume);
             }
 
             // Create Events and Start Monitor Thread (only if registry key is valid)

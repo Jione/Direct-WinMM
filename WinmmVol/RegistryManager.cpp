@@ -3,7 +3,9 @@
 // --- Configuration (from DLL context) ---
 const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs";
 const wchar_t* const VOLUME_VALUE_NAME = L"MasterVolume";
+const wchar_t* const MUTE_VALUE_NAME = L"isMute";
 const DWORD DEFAULT_VOLUME_DWORD = 65535; // Default to 100%
+const DWORD DEFAULT_MUTE_DWORD = 0; // Default to not muted
 
 namespace {
     HKEY g_hRegKey = NULL;
@@ -55,6 +57,14 @@ namespace RegistryManager {
             RegSetValueExW(g_hRegKey, VOLUME_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwVolume, sizeof(dwVolume));
         }
 
+        // Ensure the mute value exists
+        DWORD dwMute;
+        dwSize = sizeof(dwMute);
+        status = RegQueryValueExW(g_hRegKey, MUTE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwMute, &dwSize);
+        if (status == ERROR_FILE_NOT_FOUND || status != ERROR_SUCCESS || dwType != REG_DWORD) {
+            dwMute = DEFAULT_MUTE_DWORD;
+            RegSetValueExW(g_hRegKey, MUTE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwMute, sizeof(dwMute));
+        }
 
         return TRUE;
     }
@@ -98,4 +108,26 @@ namespace RegistryManager {
         return SetVolumeDword(VolumePercentToDword(percent));
     }
 
+    BOOL GetMute() {
+        if (!g_hRegKey) return (DEFAULT_MUTE_DWORD == 1);
+
+        DWORD dwMute = DEFAULT_MUTE_DWORD;
+        DWORD dwSize = sizeof(dwMute);
+        DWORD dwType;
+        LSTATUS status = RegQueryValueExW(g_hRegKey, MUTE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwMute, &dwSize);
+
+        if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
+            return (DEFAULT_MUTE_DWORD == 1); // Return default on error
+        }
+        return (dwMute == 1);
+    }
+
+    BOOL SetMute(BOOL isMute) {
+        if (!g_hRegKey) return FALSE;
+
+        DWORD dwMute = isMute ? 1 : 0;
+        LSTATUS status = RegSetValueExW(g_hRegKey, MUTE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwMute, sizeof(dwMute));
+
+        return (status == ERROR_SUCCESS);
+    }
 } // namespace RegistryManager
