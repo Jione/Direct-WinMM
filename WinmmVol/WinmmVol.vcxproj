@@ -188,6 +188,8 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="icon.ico" />
+    <Image Include="speaker.ico" />
+    <Image Include="speaker_mute.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
