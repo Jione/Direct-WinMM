@@ -123,15 +123,15 @@ BOOL DSoundAudioEngine::CreateSecondary(UINT sampleRate, UINT channels) {
     wfx.nBlockAlign = (wfx.nChannels * wfx.wBitsPerSample) / 8;
     wfx.nAvgBytesPerSec = wfx.nSamplesPerSec * wfx.nBlockAlign;
 
-    // Buffer size: 2 seconds worth (double buffer)
-    DWORD bytes2sec = wfx.nAvgBytesPerSec * 2;
-    // Safe block: 500ms aligned
-    DWORD bytes500ms = (wfx.nAvgBytesPerSec / 2);
-    bytes500ms = AlignDown(bytes500ms, wfx.nBlockAlign);
+    // Buffer size: 4 seconds worth (double buffer)
+    DWORD bytes4sec = wfx.nAvgBytesPerSec * 4;
+    // Safe block: 1 seconds aligned
+    DWORD bytes1sec = wfx.nAvgBytesPerSec;
+    bytes1sec = AlignDown(bytes1sec, wfx.nBlockAlign);
 
-    bufferBytes = AlignDown(bytes2sec, wfx.nBlockAlign);
+    bufferBytes = AlignDown(bytes4sec, wfx.nBlockAlign);
     halfBytes = bufferBytes / 2;
-    blockBytes = bytes500ms ? bytes500ms : wfx.nBlockAlign;
+    blockBytes = bytes1sec ? bytes1sec : wfx.nBlockAlign;
 
     DSBUFFERDESC desc; ZeroMemory(&desc, sizeof(desc));
     desc.dwSize = sizeof(desc);
@@ -415,7 +415,7 @@ BOOL DSoundAudioEngine::IsPaused() const { return (paused == 1); }
 
 DWORD DSoundAudioEngine::GetPositionMs() const {
     if (!secondary || wfx.nSamplesPerSec == 0 || wfx.nBlockAlign == 0) return 0;
-    dprintf("total time=%d", (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec));
+    //dprintf("total time=%d", (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec));
     return (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec);
 }
 UINT  DSoundAudioEngine::CurrentSampleRate() const { return samplerate; }

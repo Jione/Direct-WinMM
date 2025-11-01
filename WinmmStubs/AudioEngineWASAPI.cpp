@@ -201,7 +201,7 @@ BOOL WasapiAudioEngine::PlayStream(UINT sampleRate, UINT channels, PcmFillProc f
     // Initialize audio client (use default buffer time)
     hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED,
         AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, // Use auto-converter
-        500 * 10000, // Buffer duration decided by device (500ms)
+        1000 * 10000, // Buffer duration decided by device (1sec)
         0,
         &wfx,
         &MY_CD_AUDIO_SESSION_GUID); // Pass custom session GUID
@@ -330,6 +330,7 @@ DWORD WasapiAudioEngine::GetPositionMs() const {
 
     // Calculate position total time played
     DWORD ms = (DWORD)((posFrames * 1000ULL) / freq);
+    //dprintf("total time=%d", ms);
     return ms;
 }
 
