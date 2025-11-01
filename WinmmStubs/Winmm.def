@@ -12,6 +12,10 @@ EXPORTS
     auxGetNumDevs                    = auxGetNumDevsStubs
     auxGetVolume                     = auxGetVolumeStubs
     auxSetVolume                     = auxSetVolumeStubs
+    mciGetDeviceIDA                  = mciGetDeviceIDAStubs
+    mciGetDeviceIDW                  = mciGetDeviceIDWStubs
+    mciGetDeviceIDFromElementIDA     = mciGetDeviceIDFromElementIDAStubs
+    mciGetDeviceIDFromElementIDW     = mciGetDeviceIDFromElementIDWStubs
 
 ;Wrapper functions (_inmm.dll wrapper)
     _ciSendCommandA                  = mciSendCommandAStubs
@@ -23,6 +27,10 @@ EXPORTS
     _uxGetNumDevs                    = auxGetNumDevsStubs
     _uxGetVolume                     = auxGetVolumeStubs
     _uxSetVolume                     = auxSetVolumeStubs
+    _ciGetDeviceIDA                  = mciGetDeviceIDAStubs
+    _ciGetDeviceIDW                  = mciGetDeviceIDWStubs
+    _ciGetDeviceIDFromElementIDA     = mciGetDeviceIDFromElementIDAStubs
+    _ciGetDeviceIDFromElementIDW     = mciGetDeviceIDFromElementIDWStubs
 
 ;PlaySound Functions
     Unnamed2                         = NT4PlaySound
@@ -43,10 +51,10 @@ EXPORTS
     mciExecute
     mciFreeCommandResource
     mciGetCreatorTask
-    mciGetDeviceIDA
-    mciGetDeviceIDW
-    mciGetDeviceIDFromElementIDA
-    mciGetDeviceIDFromElementIDW
+    ;mciGetDeviceIDA
+    ;mciGetDeviceIDW
+    ;mciGetDeviceIDFromElementIDA
+    ;mciGetDeviceIDFromElementIDW
     mciGetDriverData
     mciGetErrorStringA
     mciGetErrorStringW

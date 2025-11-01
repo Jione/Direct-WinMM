@@ -90,6 +90,7 @@ namespace DeviceInfo {
     DeviceContext* FindByDeviceID(MCIDEVICEID deviceId);
     DeviceContext* FindByAlias(LPCWSTR alias);
     DeviceContext* FindByElement(LPCWSTR element);
+    DeviceContext* FindByElementID(DWORD elementId);
 
     // Set/Get Properties
     BOOL SetElement(MCIDEVICEID deviceId, LPCWSTR element);

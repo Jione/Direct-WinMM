@@ -1227,3 +1227,75 @@ MMRESULT WINAPI auxGetVolumeStubs(UINT uDeviceID, LPDWORD pdwVolume) {
     dprintf(L"Return=MMSYSERR_NOERROR, Volume=0x%08X", *pdwVolume);
     return MMSYSERR_NOERROR;
 }
+
+MCIDEVICEID WINAPI mciGetDeviceIDAStubs(LPCSTR pszDevice) {
+    dprintf("mciGetDeviceIDAStubs pszDevice=%s", pszDevice);
+    MCIDEVICEID devId = 0;
+    if (pszDevice && (lstrcmpiA(pszDevice, "cdaudio") == 0)) {
+        DeviceContext* ctx = DeviceInfo::GetFirstDevice();
+        if (!ctx && DeviceInfo::Initialize() && DeviceInfo::CreateDevice(NULL, &devId)) {
+            ctx = DeviceInfo::FindByDeviceID(devId);
+            Device::Open(ctx, NULL, NULL);
+        }
+        else if (ctx) {
+            devId = ctx->deviceId;
+        }
+    }
+    if (!devId) {
+        devId = mciGetDeviceIDA(pszDevice);
+    }
+    dprintf(L"Return=DeviceID:0x%04X", devId);
+    return devId;
+}
+
+MCIDEVICEID WINAPI mciGetDeviceIDWStubs(LPCWSTR pszDevice) {
+    dprintf(L"mciGetDeviceIDWStubs pszDevice=%s", pszDevice);
+    MCIDEVICEID devId = 0;
+    if (pszDevice && (lstrcmpiW(pszDevice, L"cdaudio") == 0)) {
+        DeviceContext* ctx = DeviceInfo::GetFirstDevice();
+        if (!ctx && DeviceInfo::Initialize() && DeviceInfo::CreateDevice(NULL, &devId)) {
+            ctx = DeviceInfo::FindByDeviceID(devId);
+            Device::Open(ctx, NULL, NULL);
+        }
+        else if (ctx) {
+            devId = ctx->deviceId;
+        }
+    }
+    if (!devId) {
+        devId = mciGetDeviceIDW(pszDevice);
+    }
+    dprintf(L"Return=DeviceID:0x%04X", devId);
+    return devId;
+}
+
+MCIDEVICEID WINAPI mciGetDeviceIDFromElementIDAStubs(DWORD dwElementID, LPCSTR lpstrType) {
+    dprintf("mciGetDeviceIDFromElementIDAStubs dwElementID=0x%08X lpstrType=%s", dwElementID, lpstrType);
+    MCIDEVICEID devId = 0;
+    if (lpstrType && (lstrcmpiA(lpstrType, "cdaudio") == 0)) {
+        DeviceContext* ctx = DeviceInfo::FindByElementID(dwElementID);
+        if (ctx) {
+            devId = ctx->deviceId;
+        }
+    }
+    if (!devId) {
+        devId = mciGetDeviceIDFromElementIDA(dwElementID, lpstrType);
+    }
+    dprintf(L"Return=DeviceID:0x%04X", devId);
+    return devId;
+}
+
+MCIDEVICEID WINAPI mciGetDeviceIDFromElementIDWStubs(DWORD dwElementID, LPCWSTR lpstrType) {
+    dprintf(L"mciGetDeviceIDFromElementIDWStubs dwElementID=0x%08X lpstrType=%s", dwElementID, lpstrType);
+    MCIDEVICEID devId = 0;
+    if (lpstrType && (lstrcmpiW(lpstrType, L"cdaudio") == 0)) {
+        DeviceContext* ctx = DeviceInfo::FindByElementID(dwElementID);
+        if (ctx) {
+            devId = ctx->deviceId;
+        }
+    }
+    if (!devId) {
+        devId = mciGetDeviceIDFromElementIDW(dwElementID, lpstrType);
+    }
+    dprintf(L"Return=DeviceID:0x%04X", devId);
+    return devId;
+}

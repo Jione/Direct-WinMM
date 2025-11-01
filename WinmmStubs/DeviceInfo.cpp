@@ -186,6 +186,20 @@ namespace DeviceInfo {
         return ret;
     }
 
+    DeviceContext* FindByElementID(DWORD elementId) {
+        if (!gInited) return NULL;
+        DeviceContext* ret = NULL;
+        Lock();
+        for (int i = 0; i < DT_MAX_DEVICES; ++i) {
+            if (gTable[i].inUse && gTable[i].elementId == elementId) {
+                ret = &gTable[i];
+                break;
+            }
+        }
+        Unlock();
+        return ret;
+    }
+
     BOOL SetAlias(MCIDEVICEID deviceId, LPCWSTR alias) {
         if (!gInited || !alias) return FALSE;
         Lock();
