@@ -7,3 +7,6 @@
 [submodule "external/minimp3"]
 	path = external/minimp3
 	url = https://github.com/lieff/minimp3.git
+[submodule "external/libflac"]
+	path = external/libflac
+	url = https://github.com/xiph/flac.git

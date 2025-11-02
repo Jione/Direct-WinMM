@@ -103,7 +103,7 @@ namespace {
 
         wchar_t tempPath[MAX_PATH];
         bool currentFormatWorks = false;
-        const wchar_t* exts[] = { L".wav", L".ogg", L".mp3" };
+        const wchar_t* exts[] = { L".wav", L".ogg", L".mp3", L".flac" };
 
         // Check if the current gPathFormat works
         for (int t = 1; t <= 99; ++t) {
@@ -144,15 +144,19 @@ namespace {
                             do {
                                 if (!(subFindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
                                     std::wstring filename = subFindData.cFileName;
-                                    size_t len = filename.length();
-                                    if (len >= 6) {
-                                        std::wstring ext = filename.substr(len - 4);
-                                        if (ext == L".wav" || ext == L".ogg" || ext == L".mp3") {
-                                            if (iswdigit(filename[len - 6]) && iswdigit(filename[len - 5])) {
-                                                std::wstring prefixPart = filename.substr(0, len - 6);
-                                                std::wstring fullPrefix = subDir + L"\\" + prefixPart;
-                                                prefixCounts[fullPrefix]++;
-                                            }
+
+                                    size_t dot = filename.find_last_of(L'.');
+                                    if (dot == std::wstring::npos) {
+                                        continue;
+                                    }
+                                    std::wstring ext = filename.substr(dot);
+
+                                    if ((lstrcmpiW(ext.c_str(), L".wav") == 0) || (lstrcmpiW(ext.c_str(), L".ogg") == 0) ||
+                                        (lstrcmpiW(ext.c_str(), L".mp3") == 0) || (lstrcmpiW(ext.c_str(), L".flac") == 0)) {
+                                        if (dot >= 2 && iswdigit(filename[dot - 2]) && iswdigit(filename[dot - 1])) {
+                                            std::wstring prefixPart = filename.substr(0, dot - 2);
+                                            std::wstring fullPrefix = subDir + L"\\" + prefixPart;
+                                            prefixCounts[fullPrefix]++;
                                         }
                                     }
                                 }
@@ -188,7 +192,7 @@ namespace {
         if (!out || cch == 0) return FALSE;
         out[0] = L'\0';
         InitializeTrackPath();
-        const wchar_t* exts[] = { L".wav", L".ogg", L".mp3" };
+        const wchar_t* exts[] = { L".wav", L".ogg", L".mp3", L".flac" };
         wchar_t formatBase[MAX_PATH] = { 0 };
         wsprintfW(formatBase, gPathFormat.c_str(), track);
 

@@ -15,6 +15,7 @@ AudioDecoder::AudioDecoder() {
     ZeroMemory(&wav, sizeof(wav));
     ZeroMemory(&ogg, sizeof(ogg));
     ZeroMemory(&mp3, sizeof(mp3));
+    ZeroMemory(&flac, sizeof(flac));
 }
 AudioDecoder::~AudioDecoder() { Close(); }
 
@@ -26,6 +27,7 @@ BOOL AudioDecoder::OpenAuto(const wchar_t* path) {
         if (_wcsicmp(ext, L".wav") == 0) return OpenWav(path);
         if (_wcsicmp(ext, L".ogg") == 0) return OpenOgg(path);
         if (_wcsicmp(ext, L".mp3") == 0) return OpenMp3(path);
+        if (_wcsicmp(ext, L".flac") == 0) return OpenFlac(path);
     }
     // Default to WAV if extension is unknown or missing
     return OpenWav(path);
@@ -44,6 +46,12 @@ void AudioDecoder::Close() {
     if (type == AD_File_Mp3) {
         if (mp3.opened) { mp3dec_ex_close(&mp3.ex); }
         ZeroMemory(&mp3, sizeof(mp3));
+    }
+    if (type == AD_File_Flac) {
+        if (flac.dec) { FLAC__stream_decoder_delete(flac.dec); flac.dec = nullptr; }
+        if (flac.fp) { fclose(flac.fp); flac.fp = nullptr; }
+        if (flac.fifo) { free(flac.fifo); flac.fifo = nullptr; }
+        ZeroMemory(&flac, sizeof(flac));
     }
 
     type = AD_File_None;
@@ -67,6 +75,8 @@ DWORD AudioDecoder::TotalFrames() const {
         return ogg.totalFrames;
     case AD_File_Mp3:
         return mp3.totalFrames;
+    case AD_File_Flac:
+        return flac.totalFrames;
     default: return 0;
     }
 }
@@ -81,8 +91,26 @@ DWORD AudioDecoder::TellFrames() const {
         return ogg.tellFrames;
     case AD_File_Mp3:
         return mp3.tellFrames;
+    case AD_File_Flac:
+        return flac.tellFrames;
     default: return 0;
     }
+}
+
+DWORD AudioDecoder::ReadFrames(short* outPCM, DWORD frames) {
+    if (type == AD_File_Wav)  return ReadFramesWav(outPCM, frames);
+    if (type == AD_File_Ogg)  return ReadFramesOgg(outPCM, frames);
+    if (type == AD_File_Mp3)  return ReadFramesMp3(outPCM, frames);
+    if (type == AD_File_Flac) return ReadFramesFlac(outPCM, frames);
+    return 0;
+}
+
+BOOL AudioDecoder::SeekFrames(DWORD f) {
+    if (type == AD_File_Wav)  return SeekFramesWav(f);
+    if (type == AD_File_Ogg)  return SeekFramesOgg(f);
+    if (type == AD_File_Mp3)  return SeekFramesMp3(f);
+    if (type == AD_File_Flac) return SeekFramesFlac(f);
+    return FALSE;
 }
 
 BOOL AudioDecoder::OpenWav(const wchar_t* path) {
@@ -222,19 +250,6 @@ BOOL AudioDecoder::SeekFramesWav(DWORD f) {
     return TRUE;
 }
 
-DWORD AudioDecoder::ReadFrames(short* outPCM, DWORD frames) {
-    if (type == AD_File_Wav)  return ReadFramesWav(outPCM, frames);
-    if (type == AD_File_Ogg)  return ReadFramesOgg(outPCM, frames);
-    if (type == AD_File_Mp3)  return ReadFramesMp3(outPCM, frames);
-    return 0;
-}
-BOOL AudioDecoder::SeekFrames(DWORD f) {
-    if (type == AD_File_Wav)  return SeekFramesWav(f);
-    if (type == AD_File_Ogg)  return SeekFramesOgg(f);
-    if (type == AD_File_Mp3)  return SeekFramesMp3(f);
-    return FALSE;
-}
-
 // --- OGG Decoder Start ---
 static size_t ov_cb_read(void* ptr, size_t size, size_t nmemb, void* datasource) {
     return fread(ptr, size, nmemb, (FILE*)datasource);
@@ -356,5 +371,222 @@ BOOL AudioDecoder::SeekFramesMp3(DWORD f) {
     size_t sample_offset = (size_t)f * fmt.channels;
     if (mp3dec_ex_seek(&mp3.ex, sample_offset) < 0) return FALSE;
     mp3.tellFrames = f;
+    return TRUE;
+}
+
+// --- FLAC Decoder Start ---
+// FIFO helpers
+void AudioDecoder::FlacFifoClear() {
+    if (flac.fifo) {
+        flac.fifoLen = 0;
+    }
+}
+bool AudioDecoder::FlacFifoEnsure(size_t needMoreSamples) {
+    // Ensure capacity to append 'needMoreSamples'
+    size_t need = flac.fifoLen + needMoreSamples;
+    if (need <= flac.fifoCap) return true;
+    size_t newCap = (flac.fifoCap ? flac.fifoCap : 8192);
+    while (newCap < need) newCap *= 2;
+    short* p = (short*)realloc(flac.fifo, newCap * sizeof(short));
+    if (!p) return false;
+    flac.fifo = p;
+    flac.fifoCap = newCap;
+    return true;
+}
+void AudioDecoder::FlacFifoPushInterleaved(const short* data, size_t samples) {
+    if (samples == 0) return;
+    if (!FlacFifoEnsure(samples)) return; // drop on OOM
+    memcpy(flac.fifo + flac.fifoLen, data, samples * sizeof(short));
+    flac.fifoLen += samples;
+}
+
+// Callbacks
+FLAC__StreamDecoderWriteStatus AudioDecoder::FlacWriteCB(
+    const FLAC__StreamDecoder*,
+    const FLAC__Frame* frame,
+    const FLAC__int32* const buffer[],
+    void* client_data)
+{
+    AudioDecoder* self = (AudioDecoder*)client_data;
+    
+    const UINT ch = self->fmt.channels;       // 1 or 2 (output)
+    const UINT inCh = self->flac.srcChannels; // actual channels in stream
+    const UINT bps = self->flac.srcBitsPerSample;
+
+    const unsigned blocksize = frame->header.blocksize;
+    if (blocksize == 0) return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+
+    // Prepare temp interleaved S16 buffer
+    // samples = blocksize * ch
+    size_t totalSamples = (size_t)blocksize * ch;
+    if (!self->FlacFifoEnsure(totalSamples)) {
+        return FLAC__STREAM_DECODER_WRITE_STATUS_ABORT;
+    }
+
+    // Convert and (if needed) downmix to 1/2 ch
+    // Strategy:
+    // - If inCh == 1 and out == 2: duplicate to stereo
+    // - If inCh >= 2 and out == 2: take first two channels (L,R)
+    // - If out == 1: average all input channels to mono
+    for (unsigned i = 0; i < blocksize; ++i) {
+        // Read one sample for each input channel
+        // Convert to S16
+        auto to_s16 = [bps](FLAC__int32 v)->short {
+            if (bps <= 16) {
+                // align to 16bit
+                int shift = 16 - (int)bps;
+                int s = (int)(v << shift);
+                return (short)(s);
+            } else {
+                // 24 or 32 -> shift down
+                int shift = (int)bps - 16;
+                int s = (int)(v >> shift);
+                return (short)(s);
+            }
+        };
+
+        if (ch == 2) {
+            short L = 0, R = 0;
+            if (inCh == 1) {
+                short mono = to_s16(buffer[0][i]);
+                L = mono; R = mono;
+            } else {
+                // At least 2 input channels: use first two
+                L = to_s16(buffer[0][i]);
+                R = to_s16(buffer[1][i]);
+            }
+            self->flac.fifo[self->flac.fifoLen++] = L;
+            self->flac.fifo[self->flac.fifoLen++] = R;
+        } else { // ch == 1
+            // Average all input channels to mono
+            int acc = 0;
+            for (UINT c = 0; c < inCh; ++c) {
+                acc += (int)to_s16(buffer[c][i]);
+            }
+            acc /= (int)inCh;
+            self->flac.fifo[self->flac.fifoLen++] = (short)acc;
+        }
+    }
+
+    return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+}
+
+void AudioDecoder::FlacMetadataCB(const FLAC__StreamDecoder*, const FLAC__StreamMetadata* md, void* client_data) {
+    if (md->type != FLAC__METADATA_TYPE_STREAMINFO) return;
+    AudioDecoder* self = (AudioDecoder*)client_data;
+    const FLAC__StreamMetadata_StreamInfo& si = md->data.stream_info;
+    
+    self->flac.srcSampleRate    = si.sample_rate;
+    self->flac.srcChannels      = si.channels;
+    self->flac.srcBitsPerSample = si.bits_per_sample;
+
+    if (si.total_samples > 0) {
+        // total_samples is per-channel sample count
+        self->flac.totalFrames = (DWORD)si.total_samples;
+    } else {
+        self->flac.totalFrames = 0;
+    }
+}
+
+void AudioDecoder::FlacErrorCB(const FLAC__StreamDecoder*, FLAC__StreamDecoderErrorStatus, void*) {
+    // No-op: caller will stop on read failure
+}
+
+BOOL AudioDecoder::OpenFlac(const wchar_t* path) {
+    Close();
+
+    // Open FILE* with wide path and init FILE-based decoder
+    FILE* fp = nullptr;
+#if defined(_MSC_VER)
+    if (_wfopen_s(&fp, path, L"rb") != 0) return FALSE;
+#else
+    fp = _wfopen(path, L"rb");
+    if (!fp) return FALSE;
+#endif
+
+    flac.dec = FLAC__stream_decoder_new();
+    if (!flac.dec) { fclose(fp); return FALSE; }
+
+    FLAC__StreamDecoderInitStatus ist =
+        FLAC__stream_decoder_init_FILE(flac.dec, fp, &AudioDecoder::FlacWriteCB, &AudioDecoder::FlacMetadataCB, &AudioDecoder::FlacErrorCB, this);
+    if (ist != FLAC__STREAM_DECODER_INIT_STATUS_OK) {
+        FLAC__stream_decoder_delete(flac.dec); flac.dec = nullptr;
+        fclose(fp);
+        return FALSE;
+    }
+
+    // Read and process STREAMINFO
+    if (!FLAC__stream_decoder_process_until_end_of_metadata(flac.dec)) {
+        FLAC__stream_decoder_delete(flac.dec); flac.dec = nullptr;
+        fclose(fp);
+        return FALSE;
+    }
+
+    // Validate channels: only 1 or 2 supported for output
+    UINT outCh = (flac.srcChannels == 1) ? 1 : 2;
+    fmt.sampleRate    = (flac.srcSampleRate ? flac.srcSampleRate : 44100);
+    fmt.channels      = outCh;
+    fmt.bitsPerSample = 16;
+
+    // Reject exotic channel layout if src has 0 channel
+    if (flac.srcChannels == 0) {
+        FLAC__stream_decoder_delete(flac.dec); flac.dec = nullptr; fclose(fp); return FALSE;
+    }
+
+    flac.fp      = fp;
+    flac.opened  = TRUE;
+    flac.eof     = FALSE;
+    flac.tellFrames = 0;
+
+    flac.fifo    = nullptr;
+    flac.fifoLen = 0;
+    flac.fifoCap = 0;
+
+    type = AD_File_Flac;
+    return TRUE;
+}
+
+DWORD AudioDecoder::ReadFramesFlac(short* outPCM, DWORD frames) {
+    if (!flac.opened) return 0;
+    const size_t wantSamples = (size_t)frames * fmt.channels;
+
+    // While FIFO has less than needed samples, ask decoder to produce more
+    while (flac.fifoLen < wantSamples && !flac.eof) {
+        if (!FLAC__stream_decoder_process_single(flac.dec)) {
+            // decoding error; stop further decoding
+            flac.eof = TRUE;
+            break;
+        }
+        if (FLAC__stream_decoder_get_state(flac.dec) == FLAC__STREAM_DECODER_END_OF_STREAM) {
+            flac.eof = TRUE;
+            break;
+        }
+        // Write callback already pushed samples into FIFO
+    }
+
+    size_t give = (flac.fifoLen < wantSamples) ? flac.fifoLen : wantSamples;
+    if (give > 0) {
+        memcpy(outPCM, flac.fifo, give * sizeof(short));
+        // shift FIFO
+        memmove(flac.fifo, flac.fifo + give, (flac.fifoLen - give) * sizeof(short));
+        flac.fifoLen -= give;
+    }
+
+    DWORD framesOut = (DWORD)(give / fmt.channels);
+    flac.tellFrames += framesOut;
+    return framesOut;
+}
+
+BOOL AudioDecoder::SeekFramesFlac(DWORD f) {
+    if (!flac.opened) return FALSE;
+    // libFLAC seeks by absolute sample index (per channel)
+    // Clear FIFO because positions change
+    FlacFifoClear();
+
+    if (!FLAC__stream_decoder_seek_absolute(flac.dec, (FLAC__uint64)f)) {
+        return FALSE; // not seekable or error
+    }
+    flac.eof = FALSE;
+    flac.tellFrames = f;
     return TRUE;
 }

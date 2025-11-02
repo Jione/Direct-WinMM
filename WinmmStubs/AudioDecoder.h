@@ -9,13 +9,15 @@
 #define MINIMP3_ALLOW_MONO_STEREO_TRANSITION
 #include <minimp3_ex.h>
 #include <vorbis/vorbisfile.h>
+#include <FLAC/stream_decoder.h>
 
 // Enum identifying the loaded audio file type
 enum AD_FileType {
     AD_File_None = 0,
     AD_File_Wav,
     AD_File_Ogg,
-    AD_File_Mp3
+    AD_File_Mp3,
+    AD_File_Flac
 };
 
 // Struct holding the *decoded output* PCM format
@@ -54,7 +56,14 @@ public:
     BOOL OpenMp3(const wchar_t* path);
 
     /**
-     * @brief Opens a file, auto-detecting the type (WAV, OGG, MP3) by its extension.
+     * @brief Opens an FLAC file for decoding.
+     * @param path File path.
+     * @return TRUE on success, FALSE on failure.
+     */
+    BOOL OpenFlac(const wchar_t* path);
+
+    /**
+     * @brief Opens a file, auto-detecting the type (WAV, OGG, MP3, FLAC) by its extension.
      * @param path File path.
      * @return TRUE on success, FALSE on failure.
      */
@@ -115,6 +124,9 @@ private:
     DWORD ReadFramesMp3(short* outPCM, DWORD frames);
     BOOL  SeekFramesMp3(DWORD f);
 
+    DWORD ReadFramesFlac(short* outPCM, DWORD frames);
+    BOOL  SeekFramesFlac(DWORD f);
+
 private:
     AD_FileType type;
     AD_Format   fmt; // Holds the *output* format (always 16-bit)
@@ -144,4 +156,46 @@ private:
         DWORD totalFrames;
         DWORD tellFrames;
     } mp3;
+
+    // FLAC
+    struct {
+        FLAC__StreamDecoder* dec;
+        FILE* fp;
+        BOOL  opened;
+        BOOL  eof;
+        UINT  srcChannels;
+        UINT  srcBitsPerSample;
+        UINT  srcSampleRate;
+
+        DWORD totalFrames;
+        DWORD tellFrames; 
+
+        // Simple FIFO for interleaved S16 samples
+        short* fifo;
+        size_t fifoLen;     // number of S16 samples stored (not bytes)
+        size_t fifoCap;     // capacity in S16 samples
+    } flac;
+
+
+    // Internal helpers for FLAC
+    void   FlacFifoClear();
+    bool   FlacFifoEnsure(size_t needMoreSamples);
+    void   FlacFifoPushInterleaved(const short* data, size_t samples);
+
+    static FLAC__StreamDecoderWriteStatus FlacWriteCB(
+        const FLAC__StreamDecoder*,
+        const FLAC__Frame* frame,
+        const FLAC__int32* const buffer[],
+        void* client_data);
+
+    static void FlacMetadataCB(
+        const FLAC__StreamDecoder*,
+        const FLAC__StreamMetadata* md,
+        void* client_data);
+
+    static void FlacErrorCB(
+        const FLAC__StreamDecoder*,
+        FLAC__StreamDecoderErrorStatus,
+        void* client_data);
+
 };

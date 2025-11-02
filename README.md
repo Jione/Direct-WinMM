@@ -3,22 +3,22 @@
 # Direct-WinMM: Play CD Audio via DirectSound / WASAPI
 
 **Direct-WinMM** is a DirectSound/WASAPI-based wrapper for `winmm.dll`, used by many older games and programs to play CD-DA audio tracks.
-This program emulates CD-DA playback by playing supported audio files (`.wav`, `.mp3`, `.ogg`) instead of actual audio tracks from a CD-ROM.
+This program emulates CD-DA playback by playing supported audio files (`.wav`, `.mp3`, `.ogg`, `.flac`) instead of actual audio tracks from a CD-ROM.
 
 
 # How to Use
 
 1.  Copy `winmm.dll` (and `WinmmVol.exe`, if volume control is desired) into the folder where the game's or program's executable is located.
 
-2.  Rip your audio tracks as `.wav`, `.mp3`, or `.ogg` files.
+2.  Rip your audio tracks as `.wav`, `.mp3`, `.ogg`, or `.flac` files.
 
-3.  The program searches for audio files in a subfolder using the format: `[Subfolder]/[Prefix]NN.[wav|mp3|ogg]`.
+3.  The program searches for audio files in a subfolder using the format: `[Subfolder]/[Prefix]NN.[wav|mp3|ogg|flac]`.
     * Example: `./Subfolder/Prefix01.wav`
     * `NN` represents the two-digit track number (e.g., 02, 03, 04...).
     * Track 1 is typically data, so audio playback usually starts from Track 02.
 
 4.  **Recommended Setup:** The program gives **highest priority** to the following path:
-    `[GameFolder]/Music/TrackNN.[wav|mp3|ogg]`
+    `[GameFolder]/Music/TrackNN.[wav|mp3|ogg|flac]`
     * Example: `C:/Games/MyGame/Music/Track02.mp3`
 
 5.  If audio is not playing, ensure your files are named and placed according to this priority structure (`Music/TrackNN...`).
@@ -89,6 +89,7 @@ Use the **system/device volume** (or Direct-WinMM's own volume control) to adjus
 
 * [libogg](https://github.com/gcp/libogg.git)
 * [libvorbis](https://github.com/xiph/vorbis.git)
+* [libflac](https://github.com/xiph/flac.git)
 * [minimp3](https://github.com/lieff/minimp3.git)
 
 ---
