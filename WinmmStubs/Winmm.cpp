@@ -1273,7 +1273,13 @@ MCIDEVICEID WINAPI mciGetDeviceIDFromElementIDAStubs(DWORD dwElementID, LPCSTR l
     MCIDEVICEID devId = 0;
     if (lpstrType && (lstrcmpiA(lpstrType, "cdaudio") == 0)) {
         DeviceContext* ctx = DeviceInfo::FindByElementID(dwElementID);
-        if (ctx) {
+        if (!ctx && DeviceInfo::Initialize() && DeviceInfo::CreateDevice(NULL, &devId)) {
+            ctx = DeviceInfo::FindByDeviceID(devId);
+            MCI_OPEN_PARMSW p{ 0, };
+            p.lpstrElementName = (LPCWSTR)dwElementID;
+            Device::Open(ctx, MCI_OPEN_ELEMENT_ID, (DWORD_PTR)&p);
+        }
+        else if (ctx) {
             devId = ctx->deviceId;
         }
     }
@@ -1289,7 +1295,13 @@ MCIDEVICEID WINAPI mciGetDeviceIDFromElementIDWStubs(DWORD dwElementID, LPCWSTR 
     MCIDEVICEID devId = 0;
     if (lpstrType && (lstrcmpiW(lpstrType, L"cdaudio") == 0)) {
         DeviceContext* ctx = DeviceInfo::FindByElementID(dwElementID);
-        if (ctx) {
+        if (!ctx && DeviceInfo::Initialize() && DeviceInfo::CreateDevice(NULL, &devId)) {
+            ctx = DeviceInfo::FindByDeviceID(devId);
+            MCI_OPEN_PARMSW p{ 0, };
+            p.lpstrElementName = (LPCWSTR)dwElementID;
+            Device::Open(ctx, MCI_OPEN_ELEMENT_ID, (DWORD_PTR)&p);
+        }
+        else if (ctx) {
             devId = ctx->deviceId;
         }
     }

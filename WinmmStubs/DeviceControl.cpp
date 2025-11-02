@@ -183,8 +183,11 @@ namespace Device {
         ctx->isCDA = TRUE;
         if (fdw & MCI_OPEN_ELEMENT) {
             const MCI_OPEN_PARMSW* p = (const MCI_OPEN_PARMSW*)dwParam;
-            if (p && p->lpstrElementName && p->lpstrElementName[0]) {
-                DeviceInfo::SetElement(ctx->deviceId, p->lpstrElementName);
+            if (p) {
+                DeviceInfo::SetElementId(ctx->deviceId, (DWORD)p->lpstrElementName);
+                if (p->lpstrElementName && p->lpstrElementName[0]) {
+                    DeviceInfo::SetElement(ctx->deviceId, p->lpstrElementName);
+                }
             }
         }
         else if (fdw & MCI_OPEN_ELEMENT_ID) {
