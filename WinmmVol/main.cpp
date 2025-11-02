@@ -56,15 +56,22 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         }
         break;
         case WM_RBUTTONUP:
-        case WM_CONTEXTMENU: // Context menu event
             // Show context menu
             TrayIcon::ShowContextMenu(hwnd);
+            break;
+        case WM_CONTEXTMENU: // Context menu event
             break;
         }
         break;
 
     case WM_COMMAND: // Menu item selected
         switch (LOWORD(wParam)) {
+        case IDM_MODE_STREAMING:
+            RegistryManager::SetBufferMode(FALSE); // Set to Streaming
+            break;
+        case IDM_MODE_FULLBUFFER:
+            RegistryManager::SetBufferMode(TRUE); // Set to Full Buffer
+            break;
         case IDM_EXIT:
             DestroyWindow(hwnd); // Trigger WM_DESTROY and exit message loop
             break;

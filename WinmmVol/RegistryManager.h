@@ -22,4 +22,9 @@ namespace RegistryManager {
     // Sets mute state
     BOOL SetMute(BOOL isMute);
 
+    // Gets buffer mode state (TRUE if FullBuffer, FALSE if Streaming)
+    BOOL GetBufferMode();
+    // Sets buffer mode state
+    BOOL SetBufferMode(BOOL isFullBuffer);
+
 } // namespace RegistryManager

@@ -8,6 +8,8 @@
 
 // Tray Menu Commands
 #define IDM_EXIT            1001 // Exit menu item ID
+#define IDM_MODE_STREAMING  1002 // Streaming mode item ID
+#define IDM_MODE_FULLBUFFER 1003 // Full Buffer mode item ID
 
 // Volume Slider Controls
 #define IDC_VOLUMESLIDER    2001 // Trackbar control ID

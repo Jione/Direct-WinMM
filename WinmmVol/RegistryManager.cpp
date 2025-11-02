@@ -4,8 +4,10 @@
 const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs";
 const wchar_t* const VOLUME_VALUE_NAME = L"MasterVolume";
 const wchar_t* const MUTE_VALUE_NAME = L"isMute";
+const wchar_t* const BUFFER_MODE_VALUE_NAME = L"isFullBuffer";
 const DWORD DEFAULT_VOLUME_DWORD = 65535; // Default to 100%
 const DWORD DEFAULT_MUTE_DWORD = 0; // Default to not muted
+const DWORD DEFAULT_BUFFER_MODE_DWORD = 0;
 
 namespace {
     HKEY g_hRegKey = NULL;
@@ -64,6 +66,15 @@ namespace RegistryManager {
         if (status == ERROR_FILE_NOT_FOUND || status != ERROR_SUCCESS || dwType != REG_DWORD) {
             dwMute = DEFAULT_MUTE_DWORD;
             RegSetValueExW(g_hRegKey, MUTE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwMute, sizeof(dwMute));
+        }
+        
+        // Ensure the buffer mode value exists
+        DWORD dwBufferMode;
+        dwSize = sizeof(dwBufferMode);
+        status = RegQueryValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwBufferMode, &dwSize);
+        if (status == ERROR_FILE_NOT_FOUND || status != ERROR_SUCCESS || dwType != REG_DWORD) {
+            dwBufferMode = DEFAULT_BUFFER_MODE_DWORD;
+            RegSetValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwBufferMode, sizeof(dwBufferMode));
         }
 
         return TRUE;
@@ -127,6 +138,29 @@ namespace RegistryManager {
 
         DWORD dwMute = isMute ? 1 : 0;
         LSTATUS status = RegSetValueExW(g_hRegKey, MUTE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwMute, sizeof(dwMute));
+
+        return (status == ERROR_SUCCESS);
+    }
+
+    BOOL GetBufferMode() {
+        if (!g_hRegKey) return (DEFAULT_BUFFER_MODE_DWORD == 1);
+
+        DWORD dwBufferMode = DEFAULT_BUFFER_MODE_DWORD;
+        DWORD dwSize = sizeof(dwBufferMode);
+        DWORD dwType;
+        LSTATUS status = RegQueryValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwBufferMode, &dwSize);
+
+        if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
+            return (DEFAULT_BUFFER_MODE_DWORD == 1); // Return default on error
+        }
+        return (dwBufferMode == 1);
+    }
+
+    BOOL SetBufferMode(BOOL isFullBuffer) {
+        if (!g_hRegKey) return FALSE;
+
+        DWORD dwBufferMode = isFullBuffer ? 1 : 0;
+        LSTATUS status = RegSetValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwBufferMode, sizeof(dwBufferMode));
 
         return (status == ERROR_SUCCESS);
     }

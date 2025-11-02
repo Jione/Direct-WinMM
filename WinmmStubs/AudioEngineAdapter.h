@@ -48,4 +48,8 @@ namespace AudioEngine {
     // Range length (ms): fromTrack:fromMs ~ toTrack:toMs
     //  - toMs==0xFFFFFFFF -> end of that track
     BOOL  GetRangeLengthMs(int fromTrack, DWORD fromMs, int toTrack, DWORD toMs, DWORD* outMs);
+
+    // Buffer mode (Default = Streaming)
+    void  SetBufferMode(BOOL useFullBuffer);
+
 }

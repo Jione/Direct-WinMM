@@ -2,14 +2,11 @@
 #include "AudioEngineDirectSound.h"
 #include "AudioEngineWASAPI.h"
 #include <string>
+#include <vector>
 #include <map>
 #include <shlwapi.h>
 
 #pragma comment(lib, "shlwapi.lib")
-
-// Define this to pre-decode the entire play range into memory.
-// If undefined, the engine will stream from the files.
-// #define AE_USE_FULLBUFFER
 
 // ===================== Internal Helpers / State =====================
 namespace {
@@ -59,6 +56,11 @@ namespace {
     static int  gCurTrack = -1;
     static BOOL gLoop = TRUE;
     static HWND gNotify = NULL;
+
+    // Runtime Buffering Mode Switch
+    // FALSE = Streaming (default)
+    // TRUE = Full Buffer (pre-decode)
+    static BOOL g_UseFullBufferMode = FALSE;
 
     // Volume Cache (Adapter Master/Sub)
     static float gMasterVol = 1.0f;
@@ -314,13 +316,13 @@ namespace {
         Engine_SetSubVol(gSubVolLeft, gSubVolRight);
         Engine_SetChannelMute(gMuteLeft, gMuteRight);
     }
-#ifdef AE_USE_FULLBUFFER
-// ====== Playback Mode 1 (Full Buffer, Pre-decode) ======
 
-    // FullBuffer Globals
-    static AudioDecoder        gDec;      // Decoder (for format reference)
-    static AD_Format           gFmt;
-    static BOOL                gFmtInit = FALSE;
+    // ====== Playback Mode 1 (Full Buffer, Pre-decode) ======
+
+        // FullBuffer Globals
+    static AudioDecoder        gDec_Full; // Decoder (for format reference)
+    static AD_Format           gFmt_Full;
+    static BOOL                gFmtInit_Full = FALSE;
 
     static std::vector<short>  gPcm;      // Pre-buffer
     static DWORD               gFrames = 0; // Total frames in gPcm
@@ -398,9 +400,7 @@ namespace {
 
     // Update (track, track_ms) from concatenated buffer position gPos
     static void UpdateStatusFromConcat() {
-        if (!gFmtInit || gFullSegCount <= 0) { return; }
-        // If playback ended (no loop), keep last track/0ms
-        if (gAtEnd) return;
+        if (!gFmtInit_Full || gFullSegCount <= 0) { return; }
 
         DWORD pos = (gPos < gFrames) ? gPos : (gFrames ? gFrames - 1 : 0);
         for (int i = 0; i < gFullSegCount; ++i) {
@@ -411,28 +411,24 @@ namespace {
                 DWORD inSeg = pos - s.concatStartFrame;
                 DWORD trackFrame = s.trackStartFrame + inSeg;
                 gStatusTrack = s.track;
-                gStatusPosMs = FramesToMs(trackFrame, gFmt);
                 return;
             }
         }
         // Past the end Report 0ms of the last track
         const FullSeg& last = gFullSegs[gFullSegCount - 1];
         gStatusTrack = last.track;
-        gStatusPosMs = 0;
     }
 
     // Audio Engine Callback (Full Buffer Mode)
     static DWORD WINAPI FillFromMemory(short* out, DWORD frames, void*) {
-        if (!gFmtInit || gPcm.empty()) { ZeroMemory(out, frames * 2 * sizeof(short)); return frames; }
-        const DWORD ch = gFmt.channels;
+        if (!gFmtInit_Full || gPcm.empty()) { ZeroMemory(out, frames * 2 * sizeof(short)); return frames; }
+        const DWORD ch = gFmt_Full.channels;
         DWORD remain = (gFrames > gPos) ? (gFrames - gPos) : 0;
         DWORD n = MinDW(frames, remain);
         if (n) {
             memcpy(out, &gPcm[(size_t)gPos * ch], n * ch * sizeof(short));
             gPos += n;
         }
-        // Update status during playback
-        gAtEnd = FALSE;
         UpdateStatusFromConcat();
 
         if (n < frames) {
@@ -450,12 +446,10 @@ namespace {
             }
             else {
                 // MCICDA compatibility: At end, report last track / 0ms
-                gAtEnd = TRUE;
                 if (gFullSegCount > 0) {
                     const FullSeg& last = gFullSegs[gFullSegCount - 1];
                     gStatusTrack = last.track;
                 }
-                gStatusPosMs = 0;
                 ZeroMemory(out + n * ch, (frames - n) * ch * sizeof(short));
             }
         }
@@ -465,8 +459,8 @@ namespace {
     // Main setup function for Full Buffer mode
     static BOOL BuildFullBuffer(int fromTrack, DWORD fromMs, int toTrack, DWORD toMs) {
         gPcm.clear(); gPcm.shrink_to_fit(); gFrames = gPos = 0;
-        ZeroMemory(&gFmt, sizeof(gFmt)); gFmtInit = FALSE;
-        gFullSegCount = 0; gAtEnd = FALSE;
+        ZeroMemory(&gFmt_Full, sizeof(gFmt_Full)); gFmtInit_Full = FALSE;
+        gFullSegCount = 0;
 
         if (toTrack < fromTrack) return FALSE;
 
@@ -490,11 +484,11 @@ namespace {
                 continue; // Empty file -> skip
             }
 
-            if (!gFmtInit) {
-                gFmt = f; gFmtInit = TRUE;
+            if (!gFmtInit_Full) {
+                gFmt_Full = f; gFmtInit_Full = TRUE;
             }
             else {
-                if (f.sampleRate != gFmt.sampleRate || f.channels != gFmt.channels) {
+                if (f.sampleRate != gFmt_Full.sampleRate || f.channels != gFmt_Full.channels) {
                     // Format mismatch -> fail
                     return FALSE;
                 }
@@ -521,30 +515,27 @@ namespace {
             }
 
             // Actually append (AppendTrackSlice handles slicing)
-            if (AppendTrackSlice(t, useFromMs, useToMs, gFmt, gFmtInit, totalFramesAccum)) {
+            if (AppendTrackSlice(t, useFromMs, useToMs, gFmt_Full, gFmtInit_Full, totalFramesAccum)) {
                 firstSegAdded = TRUE;
             }
             // Failures (no file, 0-range) are just skipped
         }
 
-        if (!gFmtInit || gFullSegCount <= 0 || totalFramesAccum == 0) return FALSE;
+        if (!gFmtInit_Full || gFullSegCount <= 0 || totalFramesAccum == 0) return FALSE;
 
         gFrames = totalFramesAccum;
         gPos = 0;
 
         // Status at start (start of the first segment)
         gEverPlayed = TRUE;
-        gAtEnd = FALSE;
         gStatusTrack = gFullSegs[0].track;
-        gStatusPosMs = FramesToMs(gFullSegs[0].trackStartFrame, gFmt);
         return TRUE;
     }
-#endif
-#ifndef AE_USE_FULLBUFFER
-// ====== Playback Mode 2 (Streaming) ======
-    // Streaming Globals
-    static AD_Format     gFmt;
-    static BOOL          gFmtInit = FALSE;
+
+    // ====== Playback Mode 2 (Streaming) ======
+        // Streaming Globals
+    static AD_Format     gFmt_Stream;
+    static BOOL          gFmtInit_Stream = FALSE;
 
     struct Segment { int track; DWORD startFrame; DWORD endFrame; };
     static Segment  gSegs[128];
@@ -559,7 +550,7 @@ namespace {
     static BOOL BuildSegments(int fromTrack, DWORD fromMs, int toTrack, DWORD toMs) {
         gSegCount = 0; gSegIndex = 0; gSegCursor = 0;
         gDecCur.Close(); gDecCurTrack = -1;
-        ZeroMemory(&gFmt, sizeof(gFmt)); gFmtInit = FALSE;
+        ZeroMemory(&gFmt_Stream, sizeof(gFmt_Stream)); gFmtInit_Stream = FALSE;
 
         if (toTrack < fromTrack) return FALSE;
 
@@ -584,11 +575,11 @@ namespace {
                 continue; // Empty file (0 frames) -> skip
             }
 
-            if (!gFmtInit) {
-                gFmt = f; gFmtInit = TRUE;
+            if (!gFmtInit_Stream) {
+                gFmt_Stream = f; gFmtInit_Stream = TRUE;
             }
             else {
-                if (f.sampleRate != gFmt.sampleRate || f.channels != gFmt.channels) {
+                if (f.sampleRate != gFmt_Stream.sampleRate || f.channels != gFmt_Stream.channels) {
                     // Format mismatch -> fail
                     return FALSE;
                 }
@@ -601,7 +592,7 @@ namespace {
                 // First *existing* track found
                 if (t == fromTrack) {
                     // If it's fromTrack, apply fromMs
-                    DWORD fm = MsToFrame(fromMs, gFmt);
+                    DWORD fm = MsToFrame(fromMs, gFmt_Stream);
                     if (fm == 0xFFFFFFFF) fm = 0;
                     if (fm > totFrames) fm = totFrames;
                     startF = fm;
@@ -618,7 +609,7 @@ namespace {
 
             if (t == toTrack) {
                 // If it's the boundary toTrack, apply toMs
-                DWORD tm = MsToFrame(toMs, gFmt);
+                DWORD tm = MsToFrame(toMs, gFmt_Stream);
                 if (tm > totFrames) tm = totFrames;
                 endF = tm;
             }
@@ -636,7 +627,7 @@ namespace {
             // else (e.g., fromMs > length), skip this track
         }
 
-        if (!gFmtInit || gSegCount <= 0) return FALSE;
+        if (!gFmtInit_Stream || gSegCount <= 0) return FALSE;
 
         // Status before play (start of first segment)
         gStatusTrack = gSegs[0].track;
@@ -658,7 +649,7 @@ namespace {
         if (!gDecCur.OpenAuto(path)) return FALSE;
         AD_Format f; if (!gDecCur.GetFormat(&f)) { gDecCur.Close(); return FALSE; }
         if (f.sampleRate == 0 || (f.channels != 1 && f.channels != 2)) { gDecCur.Close(); return FALSE; }
-        if (f.sampleRate != gFmt.sampleRate || f.channels != gFmt.channels) { gDecCur.Close(); return FALSE; }
+        if (f.sampleRate != gFmt_Stream.sampleRate || f.channels != gFmt_Stream.channels) { gDecCur.Close(); return FALSE; }
         if (!gDecCur.SeekFrames(s.startFrame)) { gDecCur.Close(); return FALSE; }
 
         gDecCurTrack = s.track; gSegCursor = 0;
@@ -677,8 +668,8 @@ namespace {
 
     // Audio Engine Callback (Streaming Mode)
     static DWORD WINAPI FillFromStream(short* out, DWORD frames, void*) {
-        if (!gFmtInit || gSegCount <= 0) { ZeroMemory(out, frames * 2 * sizeof(short)); return frames; }
-        const DWORD ch = gFmt.channels ? gFmt.channels : 2;
+        if (!gFmtInit_Stream || gSegCount <= 0) { ZeroMemory(out, frames * 2 * sizeof(short)); return frames; }
+        const DWORD ch = gFmt_Stream.channels ? gFmt_Stream.channels : 2;
         DWORD filled = 0;
 
         while (filled < frames) {
@@ -736,7 +727,7 @@ namespace {
         }
         return frames;
     }
-#endif // !AE_USE_FULLBUFFER
+
 } // namespace (anonymous)
 
 // ===================== Public API Implementation =====================
@@ -745,6 +736,7 @@ namespace AudioEngine {
     BOOL InitializeIfNeeded(HWND initWindow) {
         if (gInited) return TRUE;
         gVistaOrLater = IsVistaOrLater();
+        dprintf("Use %s Buffer mode", g_UseFullBufferMode ? "Full" : "Streaming");
         if (!Engine_Initialize(initWindow ? initWindow : GetDesktopWindow())) return FALSE;
         gInited = TRUE;
 
@@ -762,15 +754,15 @@ namespace AudioEngine {
         Engine_Stop();
         Engine_Shutdown();
 
-#ifdef AE_USE_FULLBUFFER
+        // --- Clear Full Buffer State ---
         gPcm.clear(); gPcm.shrink_to_fit(); gFrames = gPos = 0;
-        ZeroMemory(&gFmt, sizeof(gFmt)); gFmtInit = FALSE;
+        ZeroMemory(&gFmt_Full, sizeof(gFmt_Full)); gFmtInit_Full = FALSE;
         gFullSegCount = 0;
-#else
+
+        // --- Clear Streaming State ---
         gDecCur.Close(); gDecCurTrack = -1;
         gSegCount = 0; gSegIndex = 0; gSegCursor = 0;
-        ZeroMemory(&gFmt, sizeof(gFmt)); gFmtInit = FALSE;
-#endif
+        ZeroMemory(&gFmt_Stream, sizeof(gFmt_Stream)); gFmtInit_Stream = FALSE;
 
         // Reset to MCICDA initial state
         gEverPlayed = FALSE;
@@ -785,6 +777,21 @@ namespace AudioEngine {
             gPathFormat = format;
             gPathFormatDetected = TRUE; // Mark as explicitly set, skip auto-detection
         }
+    }
+
+    // Set the buffering strategy
+    void SetBufferMode(BOOL useFullBuffer) {
+        BOOL newMode = useFullBuffer ? TRUE : FALSE;
+
+        if (newMode == g_UseFullBufferMode) {
+            return;
+        }
+
+        if (Engine_IsPlaying() || Engine_IsPaused()) {
+            StopAll();
+        }
+
+        g_UseFullBufferMode = newMode;
     }
 
     BOOL PlayTrack(int trackNumber, BOOL loop, HWND notifyHwnd) {
@@ -807,30 +814,42 @@ namespace AudioEngine {
             if (!CountDiscNumTracks(&maxIdx)) return FALSE;
             if (fromTrack > maxIdx || toTrack > maxIdx) return FALSE;
         }
-        Engine_Stop();
-#ifndef AE_USE_FULLBUFFER
-        gDecCur.Close();
-#endif
+
+        Engine_Stop(); // Stop any current playback
+
+        // Clear previous streaming state (if any)
+        gDecCur.Close(); gDecCurTrack = -1;
+
+        // Clear previous fullbuffer state (if any)
+        gPcm.clear(); gPcm.shrink_to_fit();
+
         gLoop = loop ? TRUE : FALSE;
         gCurTrack = fromTrack;
         gNotify = notifyHwnd;
 
-#ifdef AE_USE_FULLBUFFER
-        if (!BuildFullBuffer(fromTrack, fromMs, toTrack, toMs)) return FALSE;
-        // Store actual start time and total duration
-        gRangeStartMs = (gFullSegCount > 0) ? FramesToMs(gFullSegs[0].trackStartFrame, gFmt) : 0;
-        gRangeTotalMs = FramesToMs(gFrames, gFmt); // Total frames in buffer
-        if (!Engine_Play(gFmt.sampleRate, gFmt.channels, gLoop, FillFromMemory)) return FALSE;
-#else
-        if (!BuildSegments(fromTrack, fromMs, toTrack, toMs)) return FALSE;
-        // Store actual start time and total duration
-        gRangeStartMs = (gSegCount > 0) ? FramesToMs(gSegs[0].startFrame, gFmt) : 0;
-        if (!CountRangeLengthMs(fromTrack, fromMs, toTrack, toMs, &gRangeTotalMs)) {
-            gRangeTotalMs = 0;
+        // Runtime switching based on the flag
+        if (g_UseFullBufferMode)
+        {
+            // --- Full Buffer Mode ---
+            if (!BuildFullBuffer(fromTrack, fromMs, toTrack, toMs)) return FALSE;
+            // Store actual start time and total duration
+            gRangeStartMs = (gFullSegCount > 0) ? FramesToMs(gFullSegs[0].trackStartFrame, gFmt_Full) : 0;
+            gRangeTotalMs = FramesToMs(gFrames, gFmt_Full); // Total frames in buffer
+            if (!Engine_Play(gFmt_Full.sampleRate, gFmt_Full.channels, gLoop, FillFromMemory)) return FALSE;
         }
-        if (!OpenDecoderAtSegment(gSegs[0])) return FALSE;
-        if (!Engine_Play(gFmt.sampleRate, gFmt.channels, gLoop, FillFromStream)) return FALSE;
-#endif
+        else
+        {
+            // --- Streaming Mode ---
+            if (!BuildSegments(fromTrack, fromMs, toTrack, toMs)) return FALSE;
+            // Store actual start time and total duration
+            gRangeStartMs = (gSegCount > 0) ? FramesToMs(gSegs[0].startFrame, gFmt_Stream) : 0;
+            if (!CountRangeLengthMs(fromTrack, fromMs, toTrack, toMs, &gRangeTotalMs)) {
+                gRangeTotalMs = 0;
+            }
+            if (!OpenDecoderAtSegment(gSegs[0])) return FALSE;
+            if (!Engine_Play(gFmt_Stream.sampleRate, gFmt_Stream.channels, gLoop, FillFromStream)) return FALSE;
+        }
+
         // gRangeTotalMs = (gRangeTotalMs < 256) ? (gRangeTotalMs / 2) : (gRangeTotalMs - 128);
         gEverPlayed = TRUE;
 
@@ -842,15 +861,16 @@ namespace AudioEngine {
     void StopAll() {
         // Stops playback. Keeps gStatusTrack/gStatusPosMs cached (for MCI query after stop).
         Engine_Stop();
-#ifdef AE_USE_FULLBUFFER
+
+        // --- Clear Full Buffer State ---
         gPcm.clear(); gPcm.shrink_to_fit(); gFrames = gPos = 0;
-        ZeroMemory(&gFmt, sizeof(gFmt)); gFmtInit = FALSE;
+        ZeroMemory(&gFmt_Full, sizeof(gFmt_Full)); gFmtInit_Full = FALSE;
         gFullSegCount = 0;
-#else
+
+        // --- Clear Streaming State ---
         gDecCur.Close(); gDecCurTrack = -1;
         gSegCount = 0; gSegIndex = 0; gSegCursor = 0;
-        ZeroMemory(&gFmt, sizeof(gFmt)); gFmtInit = FALSE;
-#endif
+        ZeroMemory(&gFmt_Stream, sizeof(gFmt_Stream)); gFmtInit_Stream = FALSE;
     }
 
     void Pause() { Engine_Pause(); }

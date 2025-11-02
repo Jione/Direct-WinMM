@@ -1,5 +1,6 @@
 #include "TrayIcon.h"
 #include "resource.h"
+#include "RegistryManager.h"
 #include <shellapi.h> // For Shell_NotifyIcon
 
 namespace {
@@ -47,6 +48,16 @@ namespace TrayIcon {
             DestroyMenu(hMenu);
             return;
         }
+
+        // Dynamically check the correct radio item
+        BOOL isFullBuffer = RegistryManager::GetBufferMode();
+
+        // Use CheckMenuRadioItem to create a radio-button group
+        CheckMenuRadioItem(hSubMenu,                // Menu handle
+            IDM_MODE_STREAMING,                     // First item in group
+            IDM_MODE_FULLBUFFER,                    // Last item in group
+            isFullBuffer ? IDM_MODE_FULLBUFFER : IDM_MODE_STREAMING, // Item to check
+            MF_BYCOMMAND);                          // Find items by ID
 
         POINT pt;
         GetCursorPos(&pt);

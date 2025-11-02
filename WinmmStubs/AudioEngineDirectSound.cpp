@@ -98,11 +98,11 @@ BOOL DSoundAudioEngine::CreatePrimary() {
     HRESULT hr = ds->CreateSoundBuffer(&desc, &primary, NULL);
     if (FAILED(hr)) return FALSE;
 
-    // Default format: 44.1kHz, S16, Stereo
+    // Default format: 48kHz, S16, Stereo
     WAVEFORMATEX wfx; ZeroMemory(&wfx, sizeof(wfx));
     wfx.wFormatTag = WAVE_FORMAT_PCM;
     wfx.nChannels = 2;
-    wfx.nSamplesPerSec = 44100;
+    wfx.nSamplesPerSec = 48000;
     wfx.wBitsPerSample = 16;
     wfx.nBlockAlign = (wfx.nChannels * wfx.wBitsPerSample) / 8;
     wfx.nAvgBytesPerSec = wfx.nSamplesPerSec * wfx.nBlockAlign;

@@ -9,11 +9,13 @@
 const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs"; // Relative to HKCU
 const wchar_t* const VOLUME_VALUE_NAME = L"MasterVolume";
 const wchar_t* const MUTE_VALUE_NAME = L"isMute";
+const wchar_t* const BUFFER_MODE_VALUE_NAME = L"isFullBuffer";
 const wchar_t* const EXE_NAME = L"WinmmVol.exe";
 const wchar_t* const MUTEX_NAME = L"WinMM-Stubs Volume Control";
 const wchar_t* const EXE_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
 const UINT WM_EXIT_APP = WM_APP + 1; // Custom message to signal the EXE
 const DWORD DEFAULT_MUTE_DWORD = 0;
+const DWORD DEFAULT_BUFFER_MODE_DWORD = 0;
 
 namespace {
     // --- Internal State ---
@@ -86,12 +88,21 @@ namespace {
                     LSTATUS muteStatus = RegQueryValueExW(g_hRegKey,
                         MUTE_VALUE_NAME, NULL, &dwTypeMute, (LPBYTE)&dwMute, &dwSizeMute);
 
+                    DWORD dwBufferMode = 0;
+                    DWORD dwSizeBuffer = sizeof(dwBufferMode);
+                    DWORD dwTypeBuffer = 0;
+                    LSTATUS bufferStatus = RegQueryValueExW(g_hRegKey,
+                        BUFFER_MODE_VALUE_NAME, NULL, &dwTypeBuffer, (LPBYTE)&dwBufferMode, &dwSizeBuffer);
+
                     // Use defaults on failure (though Initialize should prevent this)
                     if (volStatus != ERROR_SUCCESS || dwTypeVol != REG_DWORD) {
                         dwVolume = VolumeFloatToDword(0.0f); // Fallback
                     }
                     if (muteStatus != ERROR_SUCCESS || dwTypeMute != REG_DWORD) {
                         dwMute = DEFAULT_MUTE_DWORD; // 0
+                    }
+                    if (bufferStatus != ERROR_SUCCESS || dwTypeBuffer != REG_DWORD) {
+                        dwBufferMode = DEFAULT_BUFFER_MODE_DWORD; // 0
                     }
 
                     // Apply the logic: if muted, volume is 0. If not, use master volume.
@@ -105,6 +116,11 @@ namespace {
                         dprintf(L"Registry change detected. isMute=0. Setting engine volume to %f (0x%X).", finalVolume, dwVolume);
                     }
                     AudioEngine::SetMasterVolume(finalVolume);
+
+                    // Apply Buffer Mode Logic
+                    BOOL bFullBuffer = (dwBufferMode == 1);
+                    dprintf(L"Registry change detected. isFullBuffer=%d. Setting buffer mode.", dwBufferMode);
+                    AudioEngine::SetBufferMode(bFullBuffer); // This will stop/restart if playing
                 }
                 ResetEvent(g_hRegChangeEvent); // Reset the event *before* re-registering
                 Unlock();
@@ -252,6 +268,18 @@ namespace PreferenceLoader {
             }
             // At this point, dwMute holds the last saved mute state
 
+            // Check/Create Buffer Mode Value
+            DWORD dwBufferMode = 0;
+            dwSize = sizeof(dwBufferMode);
+            regStatus = RegQueryValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwBufferMode, &dwSize);
+
+            if (regStatus == ERROR_FILE_NOT_FOUND || regStatus != ERROR_SUCCESS || dwType != REG_DWORD) {
+                dprintf(L"Registry value '%s' not found or invalid. Creating...", BUFFER_MODE_VALUE_NAME);
+                dwBufferMode = DEFAULT_BUFFER_MODE_DWORD; // 0 (Streaming)
+                RegSetValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwBufferMode, sizeof(dwBufferMode));
+            }
+            // At this point, dwBufferMode holds the last saved buffer mode
+
             // Apply Initial Volume Based on Mute State
             if (dwMute == 1) {
                 AudioEngine::SetMasterVolume(0.0f);
@@ -262,6 +290,11 @@ namespace PreferenceLoader {
                 AudioEngine::SetMasterVolume(initialVolume);
                 dprintf(L"Initial state: Unmuted. Set volume to %f.", initialVolume);
             }
+            
+            // Apply Initial Buffer Mode
+            BOOL bFullBuffer = (dwBufferMode == 1);
+            AudioEngine::SetBufferMode(bFullBuffer);
+            dprintf(L"Initial state: BufferMode=%s. Set mode.", bFullBuffer ? L"FullBuffer" : L"Streaming");
 
             // Create Events and Start Monitor Thread (only if registry key is valid)
             if (success) {
