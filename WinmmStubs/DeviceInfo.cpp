@@ -8,7 +8,7 @@ namespace {
     static BOOL gInited = FALSE;
 
     static DeviceContext gTable[DT_MAX_DEVICES];
-    static MCIDEVICEID   gNextId = 0xCAFE; // Arbitrary start value (to avoid collisions)
+    static MCIDEVICEID   gDeviceID = 0xCAFE; // Arbitrary start value (to avoid collisions)
 
     static IDevice       gDeviceInfo{ 0, };
 
@@ -18,9 +18,18 @@ namespace {
 
     // Simple ID increment function
     static MCIDEVICEID AllocId() {
-        MCIDEVICEID id = gNextId;
-        if (gNextId < 0x7FFFFFFF) gNextId++;
-        return id;
+        MCI_OPEN_PARMSW mciOpenParms;
+
+        // Create Dummy DeviceId
+        ZeroMemory(&mciOpenParms, sizeof(mciOpenParms));
+        mciOpenParms.lpstrAlias = L"cdaudio";
+        mciOpenParms.lpstrDeviceType = (LPCWSTR)MCI_DEVTYPE_WAVEFORM_AUDIO;
+
+        if (!mciSendCommandW(NULL, MCI_OPEN, MCI_OPEN_TYPE | MCI_OPEN_TYPE_ID | MCI_OPEN_ALIAS, (DWORD_PTR)&mciOpenParms)) {
+            gDeviceID = mciOpenParms.wDeviceID;
+        }
+
+        return gDeviceID;
     }
 
     static void ClearContext(DeviceContext* c) {
@@ -91,7 +100,7 @@ namespace DeviceInfo {
             if (outDeviceId) {
                 *outDeviceId = c->deviceId;
             }
-            Unlock(); // (FIX) Unlock before returning
+            Unlock(); // Unlock before returning
             return TRUE;
         }
 
@@ -131,6 +140,7 @@ namespace DeviceInfo {
     BOOL Destroy(MCIDEVICEID deviceId) {
         if (!gInited) return FALSE;
         Lock();
+        mciSendCommandW(deviceId, MCI_CLOSE, NULL, NULL);
         for (int i = 0; i < DT_MAX_DEVICES; ++i) {
             if (gTable[i].inUse && gTable[i].deviceId == deviceId) {
                 ClearContext(&gTable[i]);

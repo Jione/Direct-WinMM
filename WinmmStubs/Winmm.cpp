@@ -328,9 +328,6 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             break;
         }
     }
-    if (lstrcmpiW(mciCommand[CMD_UNKNOWN], token) == 0) {
-        cmd = CMD_GETDEVCAPS;
-    }
 
     if (cmd == CMD_UNKNOWN) return FALSE;
 
