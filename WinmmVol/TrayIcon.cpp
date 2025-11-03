@@ -50,10 +50,11 @@ namespace TrayIcon {
         }
 
         // Dynamically check the correct radio item
+        HMENU hAdvancedMenu = GetSubMenu(hSubMenu, 0);
         BOOL isFullBuffer = RegistryManager::GetBufferMode();
 
-        // Use CheckMenuRadioItem to create a radio-button group
-        CheckMenuRadioItem(hSubMenu,                // Menu handle
+        // Apply radio checks to the 'hAdvancedMenu', not 'hSubMenu'
+        CheckMenuRadioItem(hAdvancedMenu,               // Menu handle
             IDM_MODE_STREAMING,                     // First item in group
             IDM_MODE_FULLBUFFER,                    // Last item in group
             isFullBuffer ? IDM_MODE_FULLBUFFER : IDM_MODE_STREAMING, // Item to check
@@ -67,7 +68,7 @@ namespace TrayIcon {
 
         // TrackPopupMenu blocks until a selection is made or menu dismissed
         TrackPopupMenu(hSubMenu,
-            TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON, // Align bottom-left of cursor, respond to right clicks if needed elsewhere
+            TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON,
             pt.x, pt.y,
             0, hOwnerWnd, NULL);
 

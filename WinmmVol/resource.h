@@ -3,8 +3,12 @@
 // Resources
 #define IDI_APPICON         101 // Icon resource ID for icon.ico
 #define IDR_TRAYMENU        102 // Menu resource ID for tray context menu
-#define IDI_VOLUME_SPEAKER  103 // Volume speaker icon for slider
-#define IDI_VOLUME_SPEAKER_MUTE 104 // Volume speaker (muted) icon
+
+// Replaced speaker icons with 4 distinct IDs for the multi-icon file
+#define IDI_SPEAKER_MUTE    103 // Mute or 0%
+#define IDI_SPEAKER_LVL1    104 // 1-32%
+#define IDI_SPEAKER_LVL2    105 // 33-65%
+#define IDI_SPEAKER_LVL3    106 // 66-100%
 
 // Tray Menu Commands
 #define IDM_EXIT            1001 // Exit menu item ID

@@ -13,8 +13,10 @@ namespace {
     static BOOL g_dragging = false;
     static HWND g_hwndTitle = NULL;
 
-    static HICON g_hIconSpeaker = NULL;
-    static HICON g_hIconSpeakerMute = NULL;
+    static HICON g_hIconMute = NULL;
+    static HICON g_hIconLvl1 = NULL;
+    static HICON g_hIconLvl2 = NULL;
+    static HICON g_hIconLvl3 = NULL;
     static BOOL g_isMuted = FALSE;
 
     // Layout constants (edit in one place)
@@ -76,11 +78,26 @@ namespace {
         CustomSlider::SetTheme(hCtrl, t);
     }
 
-    static void UpdateMuteIcon(BOOL isMuted) {
+    // Replaced UpdateMuteIcon with UpdateVolumeIcon
+    static void UpdateVolumeIcon(int percent, BOOL isMuted) {
         if (!g_hwndIcon) return;
-        HICON hIcon = isMuted ? g_hIconSpeakerMute : g_hIconSpeaker;
+
+        HICON hIcon = NULL;
+        if (isMuted || percent == 0) {
+            hIcon = g_hIconMute;
+        }
+        else if (percent <= 32) {
+            hIcon = g_hIconLvl1;
+        }
+        else if (percent <= 65) {
+            hIcon = g_hIconLvl2;
+        }
+        else { // 66-100%
+            hIcon = g_hIconLvl3;
+        }
+
         SendMessageW(g_hwndIcon, STM_SETIMAGE, IMAGE_ICON, (LPARAM)hIcon);
-        g_isMuted = isMuted;
+        g_isMuted = isMuted; // Store current mute state
     }
 
     LRESULT CALLBACK SliderWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -98,11 +115,13 @@ namespace {
             // Icon
             g_hwndIcon = CreateWindowExW(0, L"STATIC", NULL, WS_CHILD | WS_VISIBLE | SS_ICON | SS_NOTIFY,
                 L.padL, L.iconY, L.iconW, L.iconH, hwnd, (HMENU)IDC_VOLUMEICON, GetModuleHandle(NULL), NULL);
+            // Load all 4 icons
             if (g_hwndIcon) {
-                g_hIconSpeaker = (HICON)LoadImageW(GetModuleHandle(NULL), MAKEINTRESOURCEW(IDI_VOLUME_SPEAKER),
-                    IMAGE_ICON, L.iconW, L.iconH, LR_DEFAULTCOLOR);
-                g_hIconSpeakerMute = (HICON)LoadImageW(GetModuleHandle(NULL), MAKEINTRESOURCEW(IDI_VOLUME_SPEAKER_MUTE),
-                    IMAGE_ICON, L.iconW, L.iconH, LR_DEFAULTCOLOR);
+                HINSTANCE hInst = GetModuleHandle(NULL);
+                g_hIconMute = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_MUTE), IMAGE_ICON, L.iconW, L.iconH, LR_DEFAULTCOLOR);
+                g_hIconLvl1 = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL1), IMAGE_ICON, L.iconW, L.iconH, LR_DEFAULTCOLOR);
+                g_hIconLvl2 = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL2), IMAGE_ICON, L.iconW, L.iconH, LR_DEFAULTCOLOR);
+                g_hIconLvl3 = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL3), IMAGE_ICON, L.iconW, L.iconH, LR_DEFAULTCOLOR);
             }
 
             // Right-side number
@@ -123,9 +142,10 @@ namespace {
 
             // Reflect initial value
             int percent = RegistryManager::GetVolumePercent();
+            BOOL isMuted = RegistryManager::GetMute();
             CustomSlider::SetValue(g_hwndCtrl, percent, FALSE);
             UpdateValueText(percent);
-            UpdateMuteIcon(RegistryManager::GetMute());
+            UpdateVolumeIcon(percent, isMuted);
             return 0;
         }
         case WM_MOUSEWHEEL: {
@@ -140,7 +160,7 @@ namespace {
                 newPercent -= 2; // Scroll down, decrease volume
             }
 
-            CustomSlider::SetValue(g_hwndCtrl, newPercent, TRUE);
+            CustomSlider::SetValue(g_hwndCtrl, newPercent, TRUE); // This will trigger WM_CUST_SLIDER_CHANGED
             return 0;
         }
         case WM_KEYDOWN: {
@@ -151,14 +171,16 @@ namespace {
             else if (wParam == VK_RIGHT || wParam == VK_UP) { newPercent += 1; }
             else { break; }
 
-            CustomSlider::SetValue(g_hwndCtrl, newPercent, TRUE);
+            CustomSlider::SetValue(g_hwndCtrl, newPercent, TRUE); // This will trigger WM_CUST_SLIDER_CHANGED
             return 0;
         }
         case WM_COMMAND: {
             if (LOWORD(wParam) == IDC_VOLUMEICON && HIWORD(wParam) == STN_CLICKED) {
                 BOOL newMuteState = !g_isMuted;
                 RegistryManager::SetMute(newMuteState);
-                UpdateMuteIcon(newMuteState);
+
+                int percent = CustomSlider::GetValue(g_hwndCtrl);
+                UpdateVolumeIcon(percent, newMuteState);
                 return 0;
             }
             break;
@@ -175,6 +197,14 @@ namespace {
             int percent = (int)lParam;
             RegistryManager::SetVolumePercent(percent);
             UpdateValueText(percent);
+
+            if (g_isMuted) {
+                RegistryManager::SetMute(FALSE);
+                g_isMuted = FALSE;
+            }
+
+            // Update icon based on percentage change
+            UpdateVolumeIcon(percent, g_isMuted);
             return 0;
         }
         case WM_ACTIVATE:
@@ -199,7 +229,7 @@ namespace {
         }
         case WM_DESTROY:
             g_hwndSlider = g_hwndIcon = g_hwndValue = g_hwndCtrl = g_hwndTitle = NULL;
-            g_hIconSpeakerMute = g_hIconSpeaker = NULL;
+            g_hIconMute = g_hIconLvl1 = g_hIconLvl2 = g_hIconLvl3 = NULL;
             return 0;
         }
         return DefWindowProc(hwnd, msg, wParam, lParam);
@@ -267,8 +297,10 @@ namespace VolumeSlider {
         if (!g_hwndCtrl || !g_hwndValue || !g_hwndIcon || !g_hwndTitle) return;
 
         const int percent = RegistryManager::GetVolumePercent();
+        const BOOL isMuted = RegistryManager::GetMute();
+
         CustomSlider::SetValue(g_hwndCtrl, percent, FALSE);
         UpdateValueText(percent);
-        UpdateMuteIcon(RegistryManager::GetMute());
+        UpdateVolumeIcon(percent, isMuted);
     }
 }

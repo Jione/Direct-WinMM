@@ -3,16 +3,24 @@
 
 // Icon
 IDI_APPICON ICON DISCARDABLE "icon.ico"
-IDI_VOLUME_SPEAKER ICON DISCARDABLE "speaker.ico"
-IDI_VOLUME_SPEAKER_MUTE ICON DISCARDABLE "speaker_mute.ico"
+
+// Point all 4 IDs to the *same* multi-image icon file.
+// The resource compiler will assign them sequentially.
+IDI_SPEAKER_MUTE    ICON DISCARDABLE "speaker_mute.ico"
+IDI_SPEAKER_LVL1    ICON DISCARDABLE "speaker_lv1.ico"
+IDI_SPEAKER_LVL2    ICON DISCARDABLE "speaker_lv2.ico"
+IDI_SPEAKER_LVL3    ICON DISCARDABLE "speaker_lv3.ico"
 
 // Menu
 IDR_TRAYMENU MENU DISCARDABLE
 BEGIN
-POPUP "&TrayMenu" // This text is not shown, but POPUP is needed
+POPUP "&TrayMenu"
 BEGIN
-MENUITEM "Mode: Streaming", IDM_MODE_STREAMING
-MENUITEM "Mode: Full Buffer", IDM_MODE_FULLBUFFER
+POPUP "&Advanced"
+BEGIN
+MENUITEM "Buffer mode: Streaming", IDM_MODE_STREAMING
+MENUITEM "Buffer mode: Full", IDM_MODE_FULLBUFFER
+END
 MENUITEM SEPARATOR
 MENUITEM "E&xit", IDM_EXIT
 END
