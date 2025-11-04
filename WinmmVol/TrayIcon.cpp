@@ -51,14 +51,30 @@ namespace TrayIcon {
 
         // Dynamically check the correct radio item
         HMENU hAdvancedMenu = GetSubMenu(hSubMenu, 0);
-        BOOL isFullBuffer = RegistryManager::GetBufferMode();
 
-        // Apply radio checks to the 'hAdvancedMenu', not 'hSubMenu'
-        CheckMenuRadioItem(hAdvancedMenu,               // Menu handle
-            IDM_MODE_STREAMING,                     // First item in group
-            IDM_MODE_FULLBUFFER,                    // Last item in group
-            isFullBuffer ? IDM_MODE_FULLBUFFER : IDM_MODE_STREAMING, // Item to check
-            MF_BYCOMMAND);                          // Find items by ID
+        // --- (Group 1) Set radio check for Buffer Mode ---
+        BOOL isFullBuffer = RegistryManager::GetBufferMode();
+        CheckMenuRadioItem(hAdvancedMenu,
+            IDM_MODE_STREAMING,
+            IDM_MODE_FULLBUFFER,
+            isFullBuffer ? IDM_MODE_FULLBUFFER : IDM_MODE_STREAMING,
+            MF_BYCOMMAND);
+
+        // --- (Group 2) Set radio check for Engine Mode ---
+        int engineMode = RegistryManager::GetEngineMode(); // Get 0, 1, or 2
+        UINT itemToCheck = IDM_ENGINE_AUTO;
+        if (engineMode == 1) {
+            itemToCheck = IDM_ENGINE_DS;
+        }
+        else if (engineMode == 2) {
+            itemToCheck = IDM_ENGINE_WASAPI;
+        }
+
+        CheckMenuRadioItem(hAdvancedMenu,       // Menu handle
+            IDM_ENGINE_AUTO,                // First item in group
+            IDM_ENGINE_WASAPI,              // Last item in group
+            itemToCheck,                    // Item to check
+            MF_BYCOMMAND);                  // Find items by ID
 
         POINT pt;
         GetCursorPos(&pt);

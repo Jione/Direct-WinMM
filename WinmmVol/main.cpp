@@ -66,11 +66,22 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 
     case WM_COMMAND: // Menu item selected
         switch (LOWORD(wParam)) {
+        // Handle Buffer Mode selection
         case IDM_MODE_STREAMING:
             RegistryManager::SetBufferMode(FALSE); // Set to Streaming
             break;
         case IDM_MODE_FULLBUFFER:
             RegistryManager::SetBufferMode(TRUE); // Set to Full Buffer
+            break;
+        // Handle Engine Mode selection
+        case IDM_ENGINE_AUTO:
+            RegistryManager::SetEngineMode(0); // 0 = Auto
+            break;
+        case IDM_ENGINE_DS:
+            RegistryManager::SetEngineMode(1); // 1 = Force DirectSound
+            break;
+        case IDM_ENGINE_WASAPI:
+            RegistryManager::SetEngineMode(2); // 2 = Force WASAPI
             break;
         case IDM_EXIT:
             DestroyWindow(hwnd); // Trigger WM_DESTROY and exit message loop

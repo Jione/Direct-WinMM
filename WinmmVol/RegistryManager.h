@@ -7,10 +7,15 @@ namespace RegistryManager {
     BOOL Initialize();
     void Close();
 
+    // Gets PlayerMode DWORD data
+    DWORD GetPlayerMode();
+    // Sets PlayerMode raw data
+    BOOL SetPlayerMode(DWORD mode);
+
     // Gets volume as 0-65535 DWORD
-    DWORD GetVolumeDword();
+    DWORD GetVolume();
     // Sets volume from 0-65535 DWORD
-    BOOL SetVolumeDword(DWORD dwVolume);
+    BOOL SetVolume(DWORD dwVolume);
 
     // Helper: Gets volume as percentage 0-100
     int GetVolumePercent();
@@ -26,5 +31,10 @@ namespace RegistryManager {
     BOOL GetBufferMode();
     // Sets buffer mode state
     BOOL SetBufferMode(BOOL isFullBuffer);
+
+    // Gets Engine mode state
+    int GetEngineMode();
+    // Sets Engine mode state
+    BOOL SetEngineMode(int engineMode);
 
 } // namespace RegistryManager

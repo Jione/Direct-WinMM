@@ -1,5 +1,5 @@
 #include "PreferenceLoader.h"
-#include "AudioEngineAdapter.h" // To get/set master volume
+#include "AudioEngineAdapter.h" // To get/set master volume, buffer mode, AND engine mode
 #include "DeviceInfo.h"         // To potentially link initialization
 #include <windows.h>
 #include <regstr.h> // For REGSTR_PATH_SOFTWARE etc. (optional, can build string manually)
@@ -7,15 +7,35 @@
 
 // --- Configuration ---
 const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs"; // Relative to HKCU
-const wchar_t* const VOLUME_VALUE_NAME = L"MasterVolume";
-const wchar_t* const MUTE_VALUE_NAME = L"isMute";
-const wchar_t* const BUFFER_MODE_VALUE_NAME = L"isFullBuffer";
+
+// Consolidated to one registry value
+const wchar_t* const PLAYER_MODE_VALUE_NAME = L"PlayerMode";
+
 const wchar_t* const EXE_NAME = L"WinmmVol.exe";
 const wchar_t* const MUTEX_NAME = L"WinMM-Stubs Volume Control";
 const wchar_t* const EXE_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
 const UINT WM_EXIT_APP = WM_APP + 1; // Custom message to signal the EXE
-const DWORD DEFAULT_MUTE_DWORD = 0;
-const DWORD DEFAULT_BUFFER_MODE_DWORD = 0;
+
+// --- PlayerMode Bitmask Definitions (Self-contained) ---
+// Volume (16 bits)
+const DWORD PM_VOL_SHIFT = 0;
+const DWORD PM_VOL_MASK = 0xFFFF << PM_VOL_SHIFT;
+
+// Mute (1 bit)
+const DWORD PM_MUTE_SHIFT = 16;
+const DWORD PM_MUTE_MASK = 1 << PM_MUTE_SHIFT;
+
+// Buffer Mode (1 bit)
+const DWORD PM_BUFFER_SHIFT = 17;
+const DWORD PM_BUFFER_MASK = 1 << PM_BUFFER_SHIFT;
+
+// Engine Mode (2 bits)
+const DWORD PM_ENGINE_SHIFT = 18;
+const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT;
+
+// Default value: Volume=100% (0xFFFF), Mute=0, Buffer=0, Engine=0
+const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x0000FFFF;
+
 
 namespace {
     // --- Internal State ---
@@ -32,22 +52,20 @@ namespace {
     static void Lock() { EnterCriticalSection(&g_cs); }
     static void Unlock() { LeaveCriticalSection(&g_cs); }
 
-    // Convert float [0.0, 1.0] to DWORD [0, 65535]
+    // Convert float [0.0, 1.0] to DWORD [0, 65535] (Still needed for SetMasterVolume)
     static DWORD VolumeFloatToDword(float vol) {
         if (vol < 0.0f) vol = 0.0f;
         if (vol > 1.0f) vol = 1.0f;
         return (DWORD)(vol * 65535.0f + 0.5f);
     }
 
-    // Convert DWORD [0, 65535] to float [0.0, 1.0]
+    // Convert DWORD [0, 65535] to float [0.0, 1.0] (Still needed for SetMasterVolume)
     static float VolumeDwordToFloat(DWORD dwVol) {
         if (dwVol > 65535) dwVol = 65535;
         return (float)dwVol / 65535.0f;
     }
 
-    /**
-     * @brief The background thread function that monitors registry changes.
-     */
+    // The background thread function that monitors registry changes.
     static unsigned int __stdcall MonitorThreadProc(void* /*pParam*/) {
         while (true) {
             // Register for change notification
@@ -59,7 +77,6 @@ namespace {
                     TRUE); // Asynchronous
             }
             else {
-                // Should not happen if initialized correctly
                 Sleep(1000);
                 continue;
             }
@@ -75,58 +92,50 @@ namespace {
             else if (waitResult == WAIT_OBJECT_0 + 1) {
                 Lock();
                 if (g_hRegKey) {
-                    // Read both values to determine the final volume
-                    DWORD dwVolume = 0;
-                    DWORD dwSizeVol = sizeof(dwVolume);
-                    DWORD dwTypeVol = 0;
-                    LSTATUS volStatus = RegQueryValueExW(g_hRegKey,
-                        VOLUME_VALUE_NAME, NULL, &dwTypeVol, (LPBYTE)&dwVolume, &dwSizeVol);
+                    // Read the single PlayerMode DWORD
+                    DWORD dwPlayerMode = 0;
+                    DWORD dwSize = sizeof(dwPlayerMode);
+                    DWORD dwType = 0;
+                    LSTATUS status = RegQueryValueExW(g_hRegKey,
+                        PLAYER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwPlayerMode, &dwSize);
 
-                    DWORD dwMute = 0;
-                    DWORD dwSizeMute = sizeof(dwMute);
-                    DWORD dwTypeMute = 0;
-                    LSTATUS muteStatus = RegQueryValueExW(g_hRegKey,
-                        MUTE_VALUE_NAME, NULL, &dwTypeMute, (LPBYTE)&dwMute, &dwSizeMute);
-
-                    DWORD dwBufferMode = 0;
-                    DWORD dwSizeBuffer = sizeof(dwBufferMode);
-                    DWORD dwTypeBuffer = 0;
-                    LSTATUS bufferStatus = RegQueryValueExW(g_hRegKey,
-                        BUFFER_MODE_VALUE_NAME, NULL, &dwTypeBuffer, (LPBYTE)&dwBufferMode, &dwSizeBuffer);
-
-                    // Use defaults on failure (though Initialize should prevent this)
-                    if (volStatus != ERROR_SUCCESS || dwTypeVol != REG_DWORD) {
-                        dwVolume = VolumeFloatToDword(0.0f); // Fallback
-                    }
-                    if (muteStatus != ERROR_SUCCESS || dwTypeMute != REG_DWORD) {
-                        dwMute = DEFAULT_MUTE_DWORD; // 0
-                    }
-                    if (bufferStatus != ERROR_SUCCESS || dwTypeBuffer != REG_DWORD) {
-                        dwBufferMode = DEFAULT_BUFFER_MODE_DWORD; // 0
+                    // Use default on failure
+                    if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
+                        dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
                     }
 
-                    // Apply the logic: if muted, volume is 0. If not, use master volume.
+                    // --- Extract values from bitmask ---
+                    DWORD dwVolume = (dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT;
+                    BOOL bMute = (dwPlayerMode & PM_MUTE_MASK) != 0;
+                    BOOL bFullBuffer = (dwPlayerMode & PM_BUFFER_MASK) != 0;
+                    int nEngineMode = (int)((dwPlayerMode & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
+
+                    // --- Apply all settings ---
+
+                    // Apply Volume Logic
                     float finalVolume;
-                    if (dwMute == 1) {
+                    if (bMute) {
                         finalVolume = 0.0f;
-                        dprintf(L"Registry change detected. isMute=1. Setting engine volume to 0.0.");
+                        dprintf(L"Registry change detected. PlayerMode=0x%X. Setting Mute=1.", dwPlayerMode);
                     }
                     else {
                         finalVolume = VolumeDwordToFloat(dwVolume);
-                        dprintf(L"Registry change detected. isMute=0. Setting engine volume to %f (0x%X).", finalVolume, dwVolume);
+                        dprintf(L"Registry change detected. PlayerMode=0x%X. Setting Vol=%f.", dwPlayerMode, finalVolume);
                     }
                     AudioEngine::SetMasterVolume(finalVolume);
 
                     // Apply Buffer Mode Logic
-                    BOOL bFullBuffer = (dwBufferMode == 1);
-                    dprintf(L"Registry change detected. isFullBuffer=%d. Setting buffer mode.", dwBufferMode);
-                    AudioEngine::SetBufferMode(bFullBuffer); // This will stop/restart if playing
+                    dprintf(L"Registry change detected. Setting BufferMode=%s.", bFullBuffer ? L"Full" : L"Streaming");
+                    AudioEngine::SetBufferMode(bFullBuffer);
+
+                    // Apply Engine Mode Logic
+                    dprintf(L"Registry change detected. Setting EngineMode=%d.", nEngineMode);
+                    AudioEngine::SetEngineOverride(nEngineMode);
                 }
                 ResetEvent(g_hRegChangeEvent); // Reset the event *before* re-registering
                 Unlock();
             }
             else {
-                // Wait failed?
                 dprintf(L"WaitForMultipleObjects failed in MonitorThreadProc: %d", GetLastError());
                 Sleep(500); // Avoid tight loop on error
             }
@@ -135,14 +144,9 @@ namespace {
         return 0;
     }
 
-    /**
-     * @brief Tries to find the main window of the WinmmVol.exe process.
-     * @return HWND if found, NULL otherwise.
-     */
+    // Tries to find the main window of the WinmmVol.exe process.
     static HWND FindExeWindow() {
-        // Try finding by title first
         HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
-        // Add more specific methods if needed (e.g., specific class name)
         return hwnd;
     }
 
@@ -157,7 +161,6 @@ namespace PreferenceLoader {
         InitializeCriticalSection(&g_cs);
         Lock();
 
-        // Check if already initialized by another thread while waiting for lock
         if (g_bInitialized) {
             Unlock();
             return TRUE;
@@ -165,39 +168,30 @@ namespace PreferenceLoader {
 
         bool success = true;
 
-        // Check/Launch External EXE using Mutex
         HANDLE hMutex = CreateMutexW(NULL, TRUE, MUTEX_NAME);
         bool alreadyRunning = (GetLastError() == ERROR_ALREADY_EXISTS);
 
         if (!alreadyRunning && hMutex) {
-            // try to launch the EXE
             dprintf(L"Mutex created. Attempting to launch %s...", EXE_NAME);
             STARTUPINFOW si = { sizeof(si) };
             PROCESS_INFORMATION pi = { 0 };
             wchar_t exePath[MAX_PATH];
-
-            // Release the mutex immediately after checking/launching
             ReleaseMutex(hMutex);
-            CloseHandle(hMutex); // Close our handle to it
-
-            // Assuming EXE is in the same directory as DLL for simplicity
-            GetModuleFileNameW(NULL, exePath, MAX_PATH); // Get host EXE path
+            CloseHandle(hMutex);
+            GetModuleFileNameW(NULL, exePath, MAX_PATH);
             wchar_t* lastSlash = wcsrchr(exePath, L'\\');
             if (lastSlash) {
-                *(lastSlash + 1) = L'\0'; // Truncate to directory
+                *(lastSlash + 1) = L'\0';
                 lstrcatW(exePath, EXE_NAME);
-
                 if (CreateProcessW(NULL, exePath, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
                     dprintf(L"Launched %s successfully.", EXE_NAME);
-                    g_hExeProcess = pi.hProcess; // Store handle if needed for termination
+                    g_hExeProcess = pi.hProcess;
                     CloseHandle(pi.hThread);
-                    // Give it a moment to start and create its window
                     Sleep(500);
-                    g_hExeWnd = FindExeWindow(); // Try to find the window
+                    g_hExeWnd = FindExeWindow();
                 }
                 else {
                     dprintf(L"Failed to launch %s. Error: %d", EXE_NAME, GetLastError());
-                    // Continue initialization even if EXE fails to launch
                 }
             }
             else {
@@ -207,11 +201,10 @@ namespace PreferenceLoader {
         else if (alreadyRunning) {
             dprintf(L"%s seems to be already running (Mutex exists).", EXE_NAME);
             if (hMutex) CloseHandle(hMutex);
-            g_hExeWnd = FindExeWindow(); // Try to find window of existing process
+            g_hExeWnd = FindExeWindow();
         }
         else {
             dprintf(L"Failed to create or open mutex '%s'. Error: %d", MUTEX_NAME, GetLastError());
-            // Continue initialization despite mutex error
         }
 
 
@@ -224,77 +217,57 @@ namespace PreferenceLoader {
 
         if (regStatus != ERROR_SUCCESS) {
             dprintf(L"Failed to open/create registry key '%s'. Error: %d", REGISTRY_PATH, regStatus);
-            success = false; // Cannot proceed without registry key
+            success = false;
         }
         else {
-            // Check/Create Volume Value and Set Initial Volume
-            DWORD dwVolume = 0;
-            DWORD dwSize = sizeof(dwVolume);
+            // Check/Create the single PlayerMode Value
+            DWORD dwPlayerMode = 0;
+            DWORD dwSize = sizeof(dwPlayerMode);
             DWORD dwType = 0;
-            regStatus = RegQueryValueExW(g_hRegKey, VOLUME_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwVolume, &dwSize);
+            regStatus = RegQueryValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwPlayerMode, &dwSize);
 
             if (regStatus == ERROR_FILE_NOT_FOUND) {
-                // Value doesn't exist, create it with current engine volume
-                dprintf(L"Registry value '%s' not found. Creating...", VOLUME_VALUE_NAME);
-                float currentVolume = AudioEngine::GetMasterVolume();
-                dwVolume = VolumeFloatToDword(currentVolume);
-                regStatus = RegSetValueExW(g_hRegKey, VOLUME_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwVolume, sizeof(dwVolume));
+                dprintf(L"Registry value '%s' not found. Creating with default 0x%X", PLAYER_MODE_VALUE_NAME, DEFAULT_PLAYER_MODE_DWORD);
+                dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
+                regStatus = RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwPlayerMode, sizeof(dwPlayerMode));
                 if (regStatus != ERROR_SUCCESS) {
-                    dprintf(L"Failed to create registry value '%s'. Error: %d", VOLUME_VALUE_NAME, regStatus);
+                    dprintf(L"Failed to create registry value '%s'. Error: %d", PLAYER_MODE_VALUE_NAME, regStatus);
                     success = false;
-                }
-                else {
-                    dprintf(L"Created registry value '%s' with initial volume %f (0x%X)", VOLUME_VALUE_NAME, currentVolume, dwVolume);
                 }
             }
             else if (regStatus != ERROR_SUCCESS || dwType != REG_DWORD) {
-                // Error reading value or wrong type, overwrite with default
-                dprintf(L"Failed to query registry value '%s' or wrong type. Overwriting...", VOLUME_VALUE_NAME);
-                float currentVolume = AudioEngine::GetMasterVolume();
-                dwVolume = VolumeFloatToDword(currentVolume);
-                RegSetValueExW(g_hRegKey, VOLUME_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwVolume, sizeof(dwVolume));
+                dprintf(L"Failed to query registry value '%s' or wrong type. Overwriting...", PLAYER_MODE_VALUE_NAME);
+                dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
+                RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwPlayerMode, sizeof(dwPlayerMode));
             }
-            // At this point, dwVolume holds the last saved master volume
+            // At this point, dwPlayerMode holds the last saved (or default) settings
 
-            // Check/Create Mute Value
-            DWORD dwMute = 0;
-            dwSize = sizeof(dwMute);
-            regStatus = RegQueryValueExW(g_hRegKey, MUTE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwMute, &dwSize);
-
-            if (regStatus == ERROR_FILE_NOT_FOUND || regStatus != ERROR_SUCCESS || dwType != REG_DWORD) {
-                dprintf(L"Registry value '%s' not found or invalid. Creating...", MUTE_VALUE_NAME);
-                dwMute = DEFAULT_MUTE_DWORD; // 0 (not muted)
-                RegSetValueExW(g_hRegKey, MUTE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwMute, sizeof(dwMute));
-            }
-            // At this point, dwMute holds the last saved mute state
-
-            // Check/Create Buffer Mode Value
-            DWORD dwBufferMode = 0;
-            dwSize = sizeof(dwBufferMode);
-            regStatus = RegQueryValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwBufferMode, &dwSize);
-
-            if (regStatus == ERROR_FILE_NOT_FOUND || regStatus != ERROR_SUCCESS || dwType != REG_DWORD) {
-                dprintf(L"Registry value '%s' not found or invalid. Creating...", BUFFER_MODE_VALUE_NAME);
-                dwBufferMode = DEFAULT_BUFFER_MODE_DWORD; // 0 (Streaming)
-                RegSetValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwBufferMode, sizeof(dwBufferMode));
-            }
-            // At this point, dwBufferMode holds the last saved buffer mode
+            // --- Extract and apply all initial settings from the DWORD ---
+            // Extract values
+            DWORD dwVolume = (dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT;
+            BOOL bMute = (dwPlayerMode & PM_MUTE_MASK) != 0;
+            BOOL bFullBuffer = (dwPlayerMode & PM_BUFFER_MASK) != 0;
+            int nEngineMode = (int)((dwPlayerMode & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
 
             // Apply Initial Volume Based on Mute State
-            if (dwMute == 1) {
+            if (bMute) {
                 AudioEngine::SetMasterVolume(0.0f);
-                dprintf(L"Initial state: Muted. Set volume to 0.0. (Master level is %f)", VolumeDwordToFloat(dwVolume));
+                dprintf(L"Initial state: Muted. (PlayerMode=0x%X)", dwPlayerMode);
             }
             else {
                 float initialVolume = VolumeDwordToFloat(dwVolume);
                 AudioEngine::SetMasterVolume(initialVolume);
-                dprintf(L"Initial state: Unmuted. Set volume to %f.", initialVolume);
+                dprintf(L"Initial state: Unmuted. Set volume to %f. (PlayerMode=0x%X)", initialVolume, dwPlayerMode);
             }
-            
+
             // Apply Initial Buffer Mode
-            BOOL bFullBuffer = (dwBufferMode == 1);
             AudioEngine::SetBufferMode(bFullBuffer);
-            dprintf(L"Initial state: BufferMode=%s. Set mode.", bFullBuffer ? L"FullBuffer" : L"Streaming");
+            dprintf(L"Initial state: BufferMode=%s. (PlayerMode=0x%X)", bFullBuffer ? L"Full" : L"Streaming", dwPlayerMode);
+
+            // Apply Initial Engine Mode
+            AudioEngine::SetEngineOverride(nEngineMode);
+            dprintf(L"Initial state: EngineMode=%d. (PlayerMode=0x%X)", nEngineMode, dwPlayerMode);
+
 
             // Create Events and Start Monitor Thread (only if registry key is valid)
             if (success) {
@@ -324,7 +297,6 @@ namespace PreferenceLoader {
             if (g_hQuitEvent) { CloseHandle(g_hQuitEvent); g_hQuitEvent = NULL; }
             if (g_hRegChangeEvent) { CloseHandle(g_hRegChangeEvent); g_hRegChangeEvent = NULL; }
             if (g_hRegKey) { RegCloseKey(g_hRegKey); g_hRegKey = NULL; }
-            // Don't close g_hExeProcess here, let Shutdown handle it if needed
         }
 
         g_bInitialized = success;
@@ -336,7 +308,6 @@ namespace PreferenceLoader {
         if (!g_bInitialized) return;
 
         Lock();
-        // Check again inside lock
         if (!g_bInitialized) {
             Unlock();
             return;
@@ -359,14 +330,11 @@ namespace PreferenceLoader {
         if (g_hRegChangeEvent) { CloseHandle(g_hRegChangeEvent); g_hRegChangeEvent = NULL; }
         if (g_hRegKey) { RegCloseKey(g_hRegKey); g_hRegKey = NULL; }
 
-        // Signal External EXE to close/cleanup
         if (g_hExeWnd && IsWindow(g_hExeWnd)) {
             dprintf(L"Posting exit message (0x%X) to HWND 0x%p", WM_EXIT_APP, g_hExeWnd);
-            // PostMessage is non-blocking and safer from DLL context
             PostMessageW(g_hExeWnd, WM_EXIT_APP, 0, 0);
         }
         else {
-            // Try finding it again
             HWND hwnd = FindExeWindow();
             if (hwnd && IsWindow(hwnd)) {
                 dprintf(L"Posting exit message (0x%X) to newly found HWND 0x%p", WM_EXIT_APP, hwnd);
@@ -374,19 +342,16 @@ namespace PreferenceLoader {
             }
             else {
                 dprintf(L"Could not find window for %s to send exit message.", EXE_NAME);
-                // Be careful as this is not graceful.
-                // if (g_hExeProcess) TerminateProcess(g_hExeProcess, 0);
             }
         }
         if (g_hExeProcess) {
-            CloseHandle(g_hExeProcess); // Close our handle to the process
+            CloseHandle(g_hExeProcess);
             g_hExeProcess = NULL;
         }
 
         g_bInitialized = FALSE;
         Unlock();
 
-        // Delete CS *after* unlocking
         DeleteCriticalSection(&g_cs);
         dprintf(L"PreferenceLoader shutdown complete.");
     }

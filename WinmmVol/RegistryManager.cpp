@@ -2,12 +2,35 @@
 
 // --- Configuration (from DLL context) ---
 const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs";
-const wchar_t* const VOLUME_VALUE_NAME = L"MasterVolume";
-const wchar_t* const MUTE_VALUE_NAME = L"isMute";
-const wchar_t* const BUFFER_MODE_VALUE_NAME = L"isFullBuffer";
-const DWORD DEFAULT_VOLUME_DWORD = 65535; // Default to 100%
-const DWORD DEFAULT_MUTE_DWORD = 0; // Default to not muted
-const DWORD DEFAULT_BUFFER_MODE_DWORD = 0;
+const wchar_t* const PLAYER_MODE_VALUE_NAME = L"PlayerMode";
+
+// --- PlayerMode Bitmask Definitions ---
+// DWORD (32-bit) layout:
+// [31-20] Reserved (12 bits)
+// [19-18] Engine Mode (2 bits: 00=Auto, 01=DS, 10=WASAPI)
+// [17]    Buffer Mode (1 bit: 0=Streaming, 1=FullBuffer)
+// [16]    Mute State (1 bit: 0=Unmuted, 1=Muted)
+// [15-0]  Volume (16 bits: 0-65535)
+
+// Volume (16 bits)
+const DWORD PM_VOL_SHIFT = 0;
+const DWORD PM_VOL_MASK = 0xFFFF << PM_VOL_SHIFT;
+
+// Mute (1 bit)
+const DWORD PM_MUTE_SHIFT = 16;
+const DWORD PM_MUTE_MASK = 1 << PM_MUTE_SHIFT;
+
+// Buffer Mode (1 bit)
+const DWORD PM_BUFFER_SHIFT = 17;
+const DWORD PM_BUFFER_MASK = 1 << PM_BUFFER_SHIFT;
+
+// Engine Mode (2 bits)
+const DWORD PM_ENGINE_SHIFT = 18;
+const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT;
+
+// Default value: Volume=100% (0xFFFF), Mute=0, Buffer=0, Engine=0
+const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x0000FFFF;
+
 
 namespace {
     HKEY g_hRegKey = NULL;
@@ -39,42 +62,25 @@ namespace RegistryManager {
             NULL, &g_hRegKey, NULL);
 
         if (status != ERROR_SUCCESS) {
-            // Handle error (e.g., log)
             g_hRegKey = NULL;
             return FALSE;
         }
 
-        // Ensure the value exists, create with default if not
-        DWORD dwVolume;
-        DWORD dwSize = sizeof(dwVolume);
+        // Ensure the consolidated PlayerMode value exists
+        DWORD dwPlayerMode;
+        DWORD dwSize = sizeof(dwPlayerMode);
         DWORD dwType;
-        status = RegQueryValueExW(g_hRegKey, VOLUME_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwVolume, &dwSize);
+        status = RegQueryValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwPlayerMode, &dwSize);
+
         if (status == ERROR_FILE_NOT_FOUND) {
-            dwVolume = DEFAULT_VOLUME_DWORD;
-            RegSetValueExW(g_hRegKey, VOLUME_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwVolume, sizeof(dwVolume));
+            // Not found, create with default
+            dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
+            RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwPlayerMode, sizeof(dwPlayerMode));
         }
         else if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
-            // Error reading or wrong type, overwrite with default
-            dwVolume = DEFAULT_VOLUME_DWORD;
-            RegSetValueExW(g_hRegKey, VOLUME_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwVolume, sizeof(dwVolume));
-        }
-
-        // Ensure the mute value exists
-        DWORD dwMute;
-        dwSize = sizeof(dwMute);
-        status = RegQueryValueExW(g_hRegKey, MUTE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwMute, &dwSize);
-        if (status == ERROR_FILE_NOT_FOUND || status != ERROR_SUCCESS || dwType != REG_DWORD) {
-            dwMute = DEFAULT_MUTE_DWORD;
-            RegSetValueExW(g_hRegKey, MUTE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwMute, sizeof(dwMute));
-        }
-        
-        // Ensure the buffer mode value exists
-        DWORD dwBufferMode;
-        dwSize = sizeof(dwBufferMode);
-        status = RegQueryValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwBufferMode, &dwSize);
-        if (status == ERROR_FILE_NOT_FOUND || status != ERROR_SUCCESS || dwType != REG_DWORD) {
-            dwBufferMode = DEFAULT_BUFFER_MODE_DWORD;
-            RegSetValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwBufferMode, sizeof(dwBufferMode));
+            // Error or wrong type, overwrite
+            dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
+            RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwPlayerMode, sizeof(dwPlayerMode));
         }
 
         return TRUE;
@@ -87,81 +93,83 @@ namespace RegistryManager {
         }
     }
 
-    DWORD GetVolumeDword() {
-        if (!g_hRegKey) return DEFAULT_VOLUME_DWORD;
+    // --- Raw DWORD Access ---
+    DWORD GetPlayerMode() {
+        if (!g_hRegKey) return DEFAULT_PLAYER_MODE_DWORD;
 
-        DWORD dwVolume = DEFAULT_VOLUME_DWORD;
-        DWORD dwSize = sizeof(dwVolume);
+        DWORD dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
+        DWORD dwSize = sizeof(dwPlayerMode);
         DWORD dwType;
-        LSTATUS status = RegQueryValueExW(g_hRegKey, VOLUME_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwVolume, &dwSize);
+        LSTATUS status = RegQueryValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwPlayerMode, &dwSize);
 
         if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
-            return DEFAULT_VOLUME_DWORD; // Return default on error
+            return DEFAULT_PLAYER_MODE_DWORD; // Return default on error
         }
-        return dwVolume;
+        return dwPlayerMode;
     }
 
-    BOOL SetVolumeDword(DWORD dwVolume) {
+    BOOL SetPlayerMode(DWORD mode) {
         if (!g_hRegKey) return FALSE;
 
-        if (dwVolume > 65535) dwVolume = 65535; // Clamp
-
-        LSTATUS status = RegSetValueExW(g_hRegKey, VOLUME_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwVolume, sizeof(dwVolume));
-
+        LSTATUS status = RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&mode, sizeof(mode));
         return (status == ERROR_SUCCESS);
     }
 
-    int GetVolumePercent() {
-        return VolumeDwordToPercent(GetVolumeDword());
+    // --- (NEW) Bitmask Helper Implementations ---
+
+    DWORD GetVolume() {
+        return (GetPlayerMode() & PM_VOL_MASK) >> PM_VOL_SHIFT;
     }
 
-    BOOL SetVolumePercent(int percent) {
-        return SetVolumeDword(VolumePercentToDword(percent));
+    BOOL SetVolume(DWORD dwVolume) {
+        if (dwVolume > 0xFFFF) dwVolume = 0xFFFF; // Clamp to 16-bit
+        DWORD mode = GetPlayerMode();
+        mode = (mode & ~PM_VOL_MASK) | (dwVolume << PM_VOL_SHIFT);
+        return SetPlayerMode(mode);
     }
 
     BOOL GetMute() {
-        if (!g_hRegKey) return (DEFAULT_MUTE_DWORD == 1);
-
-        DWORD dwMute = DEFAULT_MUTE_DWORD;
-        DWORD dwSize = sizeof(dwMute);
-        DWORD dwType;
-        LSTATUS status = RegQueryValueExW(g_hRegKey, MUTE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwMute, &dwSize);
-
-        if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
-            return (DEFAULT_MUTE_DWORD == 1); // Return default on error
-        }
-        return (dwMute == 1);
+        return (GetPlayerMode() & PM_MUTE_MASK) != 0;
     }
 
     BOOL SetMute(BOOL isMute) {
-        if (!g_hRegKey) return FALSE;
-
+        DWORD mode = GetPlayerMode();
         DWORD dwMute = isMute ? 1 : 0;
-        LSTATUS status = RegSetValueExW(g_hRegKey, MUTE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwMute, sizeof(dwMute));
-
-        return (status == ERROR_SUCCESS);
+        mode = (mode & ~PM_MUTE_MASK) | (dwMute << PM_MUTE_SHIFT);
+        return SetPlayerMode(mode);
     }
 
     BOOL GetBufferMode() {
-        if (!g_hRegKey) return (DEFAULT_BUFFER_MODE_DWORD == 1);
-
-        DWORD dwBufferMode = DEFAULT_BUFFER_MODE_DWORD;
-        DWORD dwSize = sizeof(dwBufferMode);
-        DWORD dwType;
-        LSTATUS status = RegQueryValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwBufferMode, &dwSize);
-
-        if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
-            return (DEFAULT_BUFFER_MODE_DWORD == 1); // Return default on error
-        }
-        return (dwBufferMode == 1);
+        return (GetPlayerMode() & PM_BUFFER_MASK) != 0;
     }
 
     BOOL SetBufferMode(BOOL isFullBuffer) {
-        if (!g_hRegKey) return FALSE;
-
+        DWORD mode = GetPlayerMode();
         DWORD dwBufferMode = isFullBuffer ? 1 : 0;
-        LSTATUS status = RegSetValueExW(g_hRegKey, BUFFER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwBufferMode, sizeof(dwBufferMode));
-
-        return (status == ERROR_SUCCESS);
+        mode = (mode & ~PM_BUFFER_MASK) | (dwBufferMode << PM_BUFFER_SHIFT);
+        return SetPlayerMode(mode);
     }
+
+    int GetEngineMode() {
+        return (int)((GetPlayerMode() & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
+    }
+
+    BOOL SetEngineMode(int engineMode) {
+        if (engineMode < 0 || engineMode > 3) engineMode = 0; // Clamp to 2 bits (0-3)
+        DWORD mode = GetPlayerMode();
+        DWORD dwEngineMode = (DWORD)engineMode;
+        mode = (mode & ~PM_ENGINE_MASK) | (dwEngineMode << PM_ENGINE_SHIFT);
+        return SetPlayerMode(mode);
+    }
+
+    // --- (UPDATED) Percentage Helpers ---
+
+    int GetVolumePercent() {
+        return VolumeDwordToPercent(GetVolume());
+    }
+
+    BOOL SetVolumePercent(int percent) {
+        return SetVolume(VolumePercentToDword(percent));
+    }
+
 } // namespace RegistryManager

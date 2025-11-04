@@ -12,8 +12,14 @@
 namespace {
 
     // --- Global State & Engine Abstraction ---
-
     static BOOL gVistaOrLater = FALSE;
+
+    // Runtime Engine Override Switch
+    // 0 = Auto (Default: DS on < Vista, WASAPI on Vista+)
+    // 1 = Force DirectSound
+    // 2 = Force WASAPI
+    static int gEngineOverride = 0;
+
     typedef LONG(WINAPI* RtlGetVersion_t)(PRTL_OSVERSIONINFOW);
     static BOOL IsVistaOrLater() {
         static int cached = -1;
@@ -28,32 +34,39 @@ namespace {
         return cached ? TRUE : FALSE;
     }
 
+    // Internal helper to determine if WASAPI should be used, respecting the override.
+    inline BOOL UseWASAPI() {
+        if (gEngineOverride == 1) return FALSE; // Force DirectSound
+        if (gEngineOverride == 2) return TRUE;  // Force WASAPI
+        return gVistaOrLater; // Auto mode
+    }
+
     // Engine Instances
     static DSoundAudioEngine gDS;
     static WasapiAudioEngine gWAS;
 
     // Engine Abstraction Wrappers
-    inline BOOL Engine_Initialize(HWND hwnd) { return gVistaOrLater ? gWAS.Initialize(hwnd) : gDS.Initialize(hwnd); }
-    inline void Engine_Shutdown() { gVistaOrLater ? gWAS.Shutdown() : gDS.Shutdown(); }
+    inline BOOL Engine_Initialize(HWND hwnd) { return UseWASAPI() ? gWAS.Initialize(hwnd) : gDS.Initialize(hwnd); }
+    inline void Engine_Shutdown() { UseWASAPI() ? gWAS.Shutdown() : gDS.Shutdown(); }
     inline BOOL Engine_Play(UINT sr, UINT ch, BOOL loop, DWORD(WINAPI* fill)(short*, DWORD, void*)) {
-        return gVistaOrLater ? gWAS.PlayStream(sr, ch, fill, NULL, loop)
+        return UseWASAPI() ? gWAS.PlayStream(sr, ch, fill, NULL, loop)
             : gDS.PlayStream(sr, ch, fill, NULL, loop);
     }
     inline BOOL Engine_PlayStatic(UINT sr, UINT ch, short* pcm, DWORD frames, BOOL loop) {
-        return gVistaOrLater ? gWAS.PlayStaticBuffer(sr, ch, pcm, frames, loop)
+        return UseWASAPI() ? gWAS.PlayStaticBuffer(sr, ch, pcm, frames, loop)
             : gDS.PlayStaticBuffer(sr, ch, pcm, frames, loop);
     }
-    inline void Engine_Stop() { gVistaOrLater ? gWAS.Stop() : gDS.Stop(); }
-    inline void Engine_Pause() { gVistaOrLater ? gWAS.Pause() : gDS.Pause(); }
-    inline void Engine_Resume() { gVistaOrLater ? gWAS.Resume() : gDS.Resume(); }
-    inline void Engine_SetVol(float v) { gVistaOrLater ? gWAS.SetVolume(v) : gDS.SetVolume(v); }
-    inline void Engine_SetChannelMute(BOOL l, BOOL r) { gVistaOrLater ? gWAS.SetChannelMute(l, r) : gDS.SetChannelMute(l, r); }
-    inline void Engine_SetSubVol(float l, float r) { gVistaOrLater ? gWAS.SetSubVolume(l, r) : gDS.SetSubVolume(l, r); }
-    inline BOOL Engine_IsPlaying() { return gVistaOrLater ? gWAS.IsPlaying() : gDS.IsPlaying(); }
-    inline BOOL Engine_IsPaused() { return gVistaOrLater ? gWAS.IsPaused() : gDS.IsPaused(); }
-    inline DWORD Engine_PosMs() { return gVistaOrLater ? gWAS.GetPositionMs() : gDS.GetPositionMs(); }
-    inline UINT  Engine_SR() { return gVistaOrLater ? gWAS.CurrentSampleRate() : gDS.CurrentSampleRate(); }
-    inline UINT  Engine_CH() { return gVistaOrLater ? gWAS.CurrentChannels() : gDS.CurrentChannels(); }
+    inline void Engine_Stop() { UseWASAPI() ? gWAS.Stop() : gDS.Stop(); }
+    inline void Engine_Pause() { UseWASAPI() ? gWAS.Pause() : gDS.Pause(); }
+    inline void Engine_Resume() { UseWASAPI() ? gWAS.Resume() : gDS.Resume(); }
+    inline void Engine_SetVol(float v) { UseWASAPI() ? gWAS.SetVolume(v) : gDS.SetVolume(v); }
+    inline void Engine_SetChannelMute(BOOL l, BOOL r) { UseWASAPI() ? gWAS.SetChannelMute(l, r) : gDS.SetChannelMute(l, r); }
+    inline void Engine_SetSubVol(float l, float r) { UseWASAPI() ? gWAS.SetSubVolume(l, r) : gDS.SetSubVolume(l, r); }
+    inline BOOL Engine_IsPlaying() { return UseWASAPI() ? gWAS.IsPlaying() : gDS.IsPlaying(); }
+    inline BOOL Engine_IsPaused() { return UseWASAPI() ? gWAS.IsPaused() : gDS.IsPaused(); }
+    inline DWORD Engine_PosMs() { return UseWASAPI() ? gWAS.GetPositionMs() : gDS.GetPositionMs(); }
+    inline UINT  Engine_SR() { return UseWASAPI() ? gWAS.CurrentSampleRate() : gDS.CurrentSampleRate(); }
+    inline UINT  Engine_CH() { return UseWASAPI() ? gWAS.CurrentChannels() : gDS.CurrentChannels(); }
 
     // Adapter State (Common)
     static BOOL gInited = FALSE;
@@ -699,7 +712,8 @@ namespace AudioEngine {
     BOOL InitializeIfNeeded(HWND initWindow) {
         if (gInited) return TRUE;
         gVistaOrLater = IsVistaOrLater();
-        dprintf("Use %s Buffer mode", g_UseFullBufferMode ? "Full" : "Streaming");
+        dprintf("Initialize audio with %s engine (Buffer: %s)",
+            (UseWASAPI() ? "WASAPI" : "DirectSound"), (g_UseFullBufferMode ? "Full" : "Streaming"));
         if (!Engine_Initialize(initWindow ? initWindow : GetDesktopWindow())) return FALSE;
         gInited = TRUE;
 
@@ -755,6 +769,21 @@ namespace AudioEngine {
         }
 
         g_UseFullBufferMode = newMode;
+    }
+
+    // Sets the audio engine override.
+    void SetEngineOverride(int mode) {
+        if (mode < 0 || mode > 2) mode = 0;
+        if (mode == gEngineOverride) return;
+
+        BOOL prevEngine = UseWASAPI();
+        BOOL modeEngine = ((mode == 0) ? gVistaOrLater : (mode != 1)) ? TRUE : FALSE;
+
+        if (gInited && (prevEngine != modeEngine)) {
+            Shutdown();
+        }
+
+        gEngineOverride = mode;
     }
 
     BOOL PlayTrack(int trackNumber, BOOL loop, HWND notifyHwnd) {
