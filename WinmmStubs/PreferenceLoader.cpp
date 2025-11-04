@@ -17,24 +17,24 @@ const wchar_t* const EXE_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
 const UINT WM_EXIT_APP = WM_APP + 1; // Custom message to signal the EXE
 
 // --- PlayerMode Bitmask Definitions (Self-contained) ---
-// Volume (16 bits)
+// Volume (7 bits)
 const DWORD PM_VOL_SHIFT = 0;
-const DWORD PM_VOL_MASK = 0xFFFF << PM_VOL_SHIFT;
+const DWORD PM_VOL_MASK = 0x7F << PM_VOL_SHIFT; // 0x7F (0b1111111) for 7 bits
 
 // Mute (1 bit)
-const DWORD PM_MUTE_SHIFT = 16;
+const DWORD PM_MUTE_SHIFT = 7;
 const DWORD PM_MUTE_MASK = 1 << PM_MUTE_SHIFT;
 
 // Buffer Mode (2 bits)
-const DWORD PM_BUFFER_SHIFT = 17;
+const DWORD PM_BUFFER_SHIFT = 8;
 const DWORD PM_BUFFER_MASK = 3 << PM_BUFFER_SHIFT; // 3 (0b11) for 2 bits
 
-// Engine Mode (2 bits) - Shifted up by 1
-const DWORD PM_ENGINE_SHIFT = 19;
+// Engine Mode (2 bits)
+const DWORD PM_ENGINE_SHIFT = 10;
 const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT; // 3 (0b11) for 2 bits
 
-// Default value: Volume=100% (0xFFFF), Mute=0, Buffer=0, Engine=0
-const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x0000FFFF;
+// Default value: Volume=100 (0x64), Mute=0, Buffer=0, Engine=0
+const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x00000064;
 
 
 namespace {
@@ -52,17 +52,11 @@ namespace {
     static void Lock() { EnterCriticalSection(&g_cs); }
     static void Unlock() { LeaveCriticalSection(&g_cs); }
 
-    // Convert float [0.0, 1.0] to DWORD [0, 65535] (Still needed for SetMasterVolume)
-    static DWORD VolumeFloatToDword(float vol) {
-        if (vol < 0.0f) vol = 0.0f;
-        if (vol > 1.0f) vol = 1.0f;
-        return (DWORD)(vol * 65535.0f + 0.5f);
-    }
-
-    // Convert DWORD [0, 65535] to float [0.0, 1.0] (Still needed for SetMasterVolume)
-    static float VolumeDwordToFloat(DWORD dwVol) {
-        if (dwVol > 65535) dwVol = 65535;
-        return (float)dwVol / 65535.0f;
+    // Converts 7-bit percent (0-100) to float (0.0 - 1.0).
+    static float VolumePercentToFloat(int percent) {
+        if ((DWORD)percent <= 0) return 0.0f;
+        if ((DWORD)percent >= 100) return 100.0f;
+        return (float)percent / 100.0f;
     }
 
     // The background thread function that monitors registry changes.
@@ -105,7 +99,7 @@ namespace {
                     }
 
                     // --- Extract values from bitmask ---
-                    DWORD dwVolume = (dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT;
+                    int nVolume = (int)((dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT); // 7-bit int
                     BOOL bMute = (dwPlayerMode & PM_MUTE_MASK) != 0;
                     int nBufferMode = (int)((dwPlayerMode & PM_BUFFER_MASK) >> PM_BUFFER_SHIFT);
                     int nEngineMode = (int)((dwPlayerMode & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
@@ -119,7 +113,7 @@ namespace {
                         dprintf(L"Registry change detected. PlayerMode=0x%X. Setting Mute=1.", dwPlayerMode);
                     }
                     else {
-                        finalVolume = VolumeDwordToFloat(dwVolume);
+                        finalVolume = VolumePercentToFloat(nVolume); // Convert 0-100 to 0.0-1.0
                         dprintf(L"Registry change detected. PlayerMode=0x%X. Setting Vol=%f.", dwPlayerMode, finalVolume);
                     }
                     AudioEngine::SetMasterVolume(finalVolume);
@@ -244,7 +238,7 @@ namespace PreferenceLoader {
 
             // --- Extract and apply all initial settings from the DWORD ---
             // Extract values
-            DWORD dwVolume = (dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT;
+            int nVolume = (int)((dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT); // 7-bit int
             BOOL bMute = (dwPlayerMode & PM_MUTE_MASK) != 0;
             int nBufferMode = (int)((dwPlayerMode & PM_BUFFER_MASK) >> PM_BUFFER_SHIFT);
             int nEngineMode = (int)((dwPlayerMode & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
@@ -255,7 +249,7 @@ namespace PreferenceLoader {
                 dprintf(L"Initial state: Muted. (PlayerMode=0x%X)", dwPlayerMode);
             }
             else {
-                float initialVolume = VolumeDwordToFloat(dwVolume);
+                float initialVolume = VolumePercentToFloat(nVolume); // Convert 0-100 to 0.0-1.0
                 AudioEngine::SetMasterVolume(initialVolume);
                 dprintf(L"Initial state: Unmuted. Set volume to %f. (PlayerMode=0x%X)", initialVolume, dwPlayerMode);
             }

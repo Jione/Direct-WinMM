@@ -6,48 +6,34 @@ const wchar_t* const PLAYER_MODE_VALUE_NAME = L"PlayerMode";
 
 // --- PlayerMode Bitmask Definitions ---
 // DWORD (32-bit) layout:
-// [31-19] Reserved (11 bits)
-// [18-17] Engine Mode (2 bits: 00=Auto, 01=DS, 10=WASAPI)
-// [17-16] Buffer Mode (2 bits: 00=Auto, 01=Streaming, 10=FullBuffer)
-// [16]    Mute State (1 bit: 0=Unmuted, 1=Muted)
-// [15-0]  Volume (16 bits: 0-65535)
+// [31-12] Reserved (20 bits)
+// [11-10] Engine Mode (2 bits: 00=Auto, 01=DS, 10=WASAPI)
+// [9-8]   Buffer Mode (2 bits: 00=Auto, 01=Streaming, 10=FullBuffer)
+// [7]     Mute State (1 bit: 0=Unmuted, 1=Muted)
+// [6-0]   Volume (7 bits: 0-100)
 
-// Volume (16 bits)
+// Volume (7 bits)
 const DWORD PM_VOL_SHIFT = 0;
-const DWORD PM_VOL_MASK = 0xFFFF << PM_VOL_SHIFT;
+const DWORD PM_VOL_MASK = 0x7F << PM_VOL_SHIFT; // 0x7F (0b1111111) for 7 bits
 
 // Mute (1 bit)
-const DWORD PM_MUTE_SHIFT = 16;
+const DWORD PM_MUTE_SHIFT = 7;
 const DWORD PM_MUTE_MASK = 1 << PM_MUTE_SHIFT;
 
 // Buffer Mode (2 bits)
-const DWORD PM_BUFFER_SHIFT = 17;
+const DWORD PM_BUFFER_SHIFT = 8;
 const DWORD PM_BUFFER_MASK = 3 << PM_BUFFER_SHIFT; // 3 (0b11) for 2 bits
 
 // Engine Mode (2 bits)
-const DWORD PM_ENGINE_SHIFT = 19;
+const DWORD PM_ENGINE_SHIFT = 10;
 const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT; // 3 (0b11) for 2 bits
 
-// Default value: Volume=100% (0xFFFF), Mute=0, Buffer=0, Engine=0
-const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x0000FFFF;
+// Default value: Volume=100 (0x64), Mute=0, Buffer=0, Engine=0
+const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x00000064;
 
 
 namespace {
     HKEY g_hRegKey = NULL;
-
-    // Convert DWORD [0, 65535] to percent [0, 100]
-    int VolumeDwordToPercent(DWORD dwVol) {
-        if (dwVol > 65535) dwVol = 65535;
-        // Use floating point for better rounding
-        return (int)((float)dwVol / 65535.0f * 100.0f + 0.5f);
-    }
-
-    // Convert percent [0, 100] to DWORD [0, 65535]
-    DWORD VolumePercentToDword(int percent) {
-        if (percent < 0) percent = 0;
-        if (percent > 100) percent = 100;
-        return (DWORD)((float)percent / 100.0f * 65535.0f + 0.5f);
-    }
 }
 
 namespace RegistryManager {
@@ -117,17 +103,6 @@ namespace RegistryManager {
 
     // --- Bitmask Helper Implementations ---
 
-    DWORD GetVolume() {
-        return (GetPlayerMode() & PM_VOL_MASK) >> PM_VOL_SHIFT;
-    }
-
-    BOOL SetVolume(DWORD dwVolume) {
-        if (dwVolume > 0xFFFF) dwVolume = 0xFFFF; // Clamp to 16-bit
-        DWORD mode = GetPlayerMode();
-        mode = (mode & ~PM_VOL_MASK) | (dwVolume << PM_VOL_SHIFT);
-        return SetPlayerMode(mode);
-    }
-
     BOOL GetMute() {
         return (GetPlayerMode() & PM_MUTE_MASK) != 0;
     }
@@ -166,11 +141,17 @@ namespace RegistryManager {
     // --- Percentage Helpers ---
 
     int GetVolumePercent() {
-        return VolumeDwordToPercent(GetVolume());
+        return (int)((GetPlayerMode() & PM_VOL_MASK) >> PM_VOL_SHIFT);
     }
 
     BOOL SetVolumePercent(int percent) {
-        return SetVolume(VolumePercentToDword(percent));
+        if ((DWORD)percent <= 0) percent = 0;
+        else if ((DWORD)percent >= 100) percent = 100; // Clamp to 0-100 (fits in 7 bits)
+
+        DWORD mode = GetPlayerMode();
+        DWORD dwVolume = percent;
+        mode = (mode & ~PM_VOL_MASK) | (dwVolume << PM_VOL_SHIFT);
+        return SetPlayerMode(mode);
     }
 
 } // namespace RegistryManager

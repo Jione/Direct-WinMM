@@ -12,11 +12,6 @@ namespace RegistryManager {
     // Sets PlayerMode raw data
     BOOL SetPlayerMode(DWORD mode);
 
-    // Gets volume as 0-65535 DWORD
-    DWORD GetVolume();
-    // Sets volume from 0-65535 DWORD
-    BOOL SetVolume(DWORD dwVolume);
-
     // Helper: Gets volume as percentage 0-100
     int GetVolumePercent();
     // Helper: Sets volume from percentage 0-100
