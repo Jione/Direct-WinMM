@@ -2,6 +2,7 @@
 #include "RegistryManager.h"
 #include "resource.h"
 #include "CustomSlider.h"
+#include "TrayIcon.h"
 #include <commctrl.h>
 
 namespace {
@@ -181,6 +182,7 @@ namespace {
 
                 int percent = CustomSlider::GetValue(g_hwndCtrl);
                 UpdateVolumeIcon(percent, newMuteState);
+                TrayIcon::RefreshFromRegistry();
                 return 0;
             }
             break;
@@ -205,6 +207,7 @@ namespace {
 
             // Update icon based on percentage change
             UpdateVolumeIcon(percent, g_isMuted);
+            TrayIcon::RefreshFromRegistry();
             return 0;
         }
         case WM_ACTIVATE:
@@ -302,5 +305,6 @@ namespace VolumeSlider {
         CustomSlider::SetValue(g_hwndCtrl, percent, FALSE);
         UpdateValueText(percent);
         UpdateVolumeIcon(percent, isMuted);
+        TrayIcon::RefreshFromRegistry();
     }
 }

@@ -4,6 +4,12 @@
 // Icon
 IDI_APPICON ICON DISCARDABLE "Resource\icon.ico"
 
+// for Tray icon
+IDI_TRAYICON_MUTE    ICON DISCARDABLE "Resource\icon_mute.ico"
+IDI_TRAYICON_LVL1    ICON DISCARDABLE "Resource\icon_lv1.ico"
+IDI_TRAYICON_LVL2    ICON DISCARDABLE "Resource\icon_lv2.ico"
+IDI_TRAYICON_LVL3    ICON DISCARDABLE "Resource\icon_lv3.ico"
+
 // Point all 4 IDs to the *same* multi-image icon file.
 // The resource compiler will assign them sequentially.
 IDI_SPEAKER_MUTE    ICON DISCARDABLE "Resource\speaker_mute.ico"

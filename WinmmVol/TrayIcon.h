@@ -16,4 +16,7 @@ namespace TrayIcon {
     // Shows the context menu near the cursor
     void ShowContextMenu(HWND hOwnerWnd);
 
+    // Refresh tray icon from registry (mute + volume%)
+    void RefreshFromRegistry();
+
 } // namespace TrayIcon

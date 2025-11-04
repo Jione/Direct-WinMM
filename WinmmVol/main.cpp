@@ -33,13 +33,14 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         // Load icon and create tray icon
     {
         // Try to load a specific small icon size for the tray
-        HICON hIcon = (HICON)LoadImageW(g_hInstance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON,
+        HICON hIcon = (HICON)LoadImageW(g_hInstance, MAKEINTRESOURCEW(IDI_TRAYICON_LVL3), IMAGE_ICON,
             GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
         // Fallback to default size if specific size loading fails
-        if (!hIcon) hIcon = LoadIconW(g_hInstance, MAKEINTRESOURCEW(IDI_APPICON));
+        if (!hIcon) hIcon = LoadIconW(g_hInstance, MAKEINTRESOURCEW(IDI_TRAYICON_LVL3));
 
         if (hIcon) {
             TrayIcon::Create(hwnd, WM_TRAYICON, hIcon, L"WinMM Stubs Volume");
+            TrayIcon::RefreshFromRegistry();
         }
     }
     // Create the slider window (hidden initially)

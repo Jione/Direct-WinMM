@@ -193,6 +193,10 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="Resource\icon.ico" />
+    <Image Include="Resource\icon_lv1.ico" />
+    <Image Include="Resource\icon_lv2.ico" />
+    <Image Include="Resource\icon_lv3.ico" />
+    <Image Include="Resource\icon_mute.ico" />
     <Image Include="Resource\speaker_mute.ico" />
     <Image Include="Resource\speaker_lv1.ico" />
     <Image Include="Resource\speaker_lv2.ico" />
