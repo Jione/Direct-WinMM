@@ -184,12 +184,14 @@
     <ResourceCompile Include="resource.rc" />
   </ItemGroup>
   <ItemGroup>
-    <Xml Include="WinmmVol_manifest.xml" />
+    <Xml Include="Resource\WinmmVol_manifest.xml" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="icon.ico" />
-    <Image Include="speaker.ico" />
-    <Image Include="speaker_mute.ico" />
+    <Image Include="Resource\icon.ico" />
+    <Image Include="Resource\speaker_mute.ico" />
+    <Image Include="Resource\speaker_lv1.ico" />
+    <Image Include="Resource\speaker_lv2.ico" />
+    <Image Include="Resource\speaker_lv3.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

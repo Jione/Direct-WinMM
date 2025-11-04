@@ -2,14 +2,14 @@
 #include "resource.h"
 
 // Icon
-IDI_APPICON ICON DISCARDABLE "icon.ico"
+IDI_APPICON ICON DISCARDABLE "Resource\icon.ico"
 
 // Point all 4 IDs to the *same* multi-image icon file.
 // The resource compiler will assign them sequentially.
-IDI_SPEAKER_MUTE    ICON DISCARDABLE "speaker_mute.ico"
-IDI_SPEAKER_LVL1    ICON DISCARDABLE "speaker_lv1.ico"
-IDI_SPEAKER_LVL2    ICON DISCARDABLE "speaker_lv2.ico"
-IDI_SPEAKER_LVL3    ICON DISCARDABLE "speaker_lv3.ico"
+IDI_SPEAKER_MUTE    ICON DISCARDABLE "Resource\speaker_mute.ico"
+IDI_SPEAKER_LVL1    ICON DISCARDABLE "Resource\speaker_lv1.ico"
+IDI_SPEAKER_LVL2    ICON DISCARDABLE "Resource\speaker_lv2.ico"
+IDI_SPEAKER_LVL3    ICON DISCARDABLE "Resource\speaker_lv3.ico"
 
 // Menu
 IDR_TRAYMENU MENU DISCARDABLE
@@ -27,4 +27,4 @@ END
 END
 
 // Add manifest for Common Controls 6.0 (required for themed trackbar)
-1 RT_MANIFEST "WinmmVol_manifest.xml"
+1 RT_MANIFEST "Resource\WinmmVol_manifest.xml"
