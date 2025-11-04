@@ -488,7 +488,28 @@ void DSoundAudioEngine::SetChannelMute(BOOL muteLeft, BOOL muteRight) {
 }
 
 BOOL DSoundAudioEngine::IsInitialized() const { return ds != NULL; }
-BOOL DSoundAudioEngine::IsPlaying() const { return (secondary != NULL) && (running == 1) && (paused == 0); }
+BOOL DSoundAudioEngine::IsPlaying() const {
+    // If there's no secondary buffer or it's paused, it's definitely not playing.
+    if (!secondary || paused == 1) return FALSE;
+
+    // Mode 1: Streaming Mode (callback 'fill' exists)
+    // In this mode, the 'running' flag managed by the background thread is reliable.
+    if (fill != NULL) {
+        return (running == 1);
+    }
+
+    // Mode 2: Static Buffer Mode ('fill' is NULL)
+    // In this mode, the 'running' flag is unreliable as there's no thread
+    // to reset it when playback finishes.
+    DWORD dwStatus = 0;
+    if (FAILED(secondary->GetStatus(&dwStatus))) {
+        return FALSE; // On error, assume not playing
+    }
+
+    // Return TRUE only if the hardware buffer is actively playing.
+    // (dwStatus & DSBSTATUS_PLAYING) will be 0 when a non-looping static buffer finishes.
+    return (dwStatus & DSBSTATUS_PLAYING) != 0;
+}
 BOOL DSoundAudioEngine::IsPaused() const { return (paused == 1); }
 
 DWORD DSoundAudioEngine::GetPositionMs() const {
