@@ -22,6 +22,7 @@ public:
 
     // Playback Control (Same interface as DSAudioEngine)
     BOOL PlayStream(UINT sampleRate, UINT channels, PcmFillProc fillProc, void* userData, BOOL loop);
+    BOOL PlayStaticBuffer(UINT sampleRate, UINT channels, short* pcmData, DWORD totalFrames, BOOL loop);
     void Stop();
     void Pause();
     void Resume();
@@ -48,10 +49,11 @@ private:
     static DWORD WINAPI ThreadProc(LPVOID ctx);
     void ThreadLoop();
     void CleanupStream(); // Cleans up only stream-related resources
+    static DWORD WINAPI FillFromStaticMemory(short* outBuffer, DWORD frames, void* userData);
 
     // Fields
     BOOL                  comInited;
-    IMMDeviceEnumerator*  enumerator;
+    IMMDeviceEnumerator   *enumerator;
     IMMDevice             *device;
     IAudioClient          *client;
     IAudioRenderClient    *render;
@@ -71,6 +73,12 @@ private:
     // User Callback
     PcmFillProc           fill;
     void                  *user;
+
+    // State for static buffer streaming
+    short                 *staticPcmData;
+    DWORD                 staticTotalFrames;
+    volatile DWORD        staticCurrentFrame; // Must be volatile
+    BOOL                  staticLoop;
 
     // Status/Volume
     float                 volume01;   // Master Volume Cache

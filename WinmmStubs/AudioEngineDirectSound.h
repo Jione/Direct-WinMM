@@ -23,6 +23,7 @@ public:
     // Specify sample rate/channels (16-bit fixed)
     // The callback is invoked periodically from the engine thread to fill the PCM buffer (silence is added if 0 is returned)
     BOOL PlayStream(UINT sampleRate, UINT channels, PcmFillProc fillProc, void* userData, BOOL loop);
+    BOOL PlayStaticBuffer(UINT sampleRate, UINT channels, short* pcmData, DWORD totalFrames, BOOL loop);
     void Stop();            // Stops immediately (cleans up buffer/thread)
     void Pause();           // Pauses playback (replacement for DSBPLAY_PAUSE: stops + preserves cursor)
     void Resume();          // Resumes from pause

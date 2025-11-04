@@ -17,7 +17,8 @@ WasapiAudioEngine::WasapiAudioEngine()
     : comInited(FALSE), enumerator(NULL), device(NULL), client(NULL),
     render(NULL), volume(NULL), clock(NULL), channelVolume(NULL),
     thread(NULL), stopEvent(NULL), running(0), paused(0),
-    bufferFrameCount(0), fill(NULL), user(NULL),
+    bufferFrameCount(0), fill(NULL), user(NULL), staticPcmData(NULL),
+    staticTotalFrames(0), staticCurrentFrame(0), staticLoop(FALSE),
     volume01(1.0f), subVolL(1.0f), subVolR(1.0f),
     muteL(FALSE), muteR(FALSE)
 {
@@ -76,7 +77,63 @@ void WasapiAudioEngine::CleanupStream() {
     bufferFrameCount = 0;
     fill = NULL;
     user = NULL;
+
+    // Clear static buffer state
+    staticPcmData = NULL;
+    staticTotalFrames = 0;
+    staticCurrentFrame = 0;
+    staticLoop = FALSE;
+
     ZeroMemory(&wfx, sizeof(wfx));
+}
+
+// Internal callback to stream data from the static buffer
+DWORD WINAPI WasapiAudioEngine::FillFromStaticMemory(short* outBuffer, DWORD frames, void* userData) {
+    WasapiAudioEngine* self = (WasapiAudioEngine*)userData;
+    if (!self || !self->staticPcmData) {
+        return 0;
+    }
+
+    DWORD framesFilled = 0;
+    DWORD framesToFill = frames;
+    const UINT ch = self->wfx.nChannels;
+    if (ch == 0) return 0; // Should not happen
+
+    while (framesToFill > 0)
+    {
+        // Check remaining frames in source buffer
+        DWORD framesRemaining = 0;
+        if (self->staticTotalFrames > self->staticCurrentFrame) {
+            framesRemaining = self->staticTotalFrames - self->staticCurrentFrame;
+        }
+
+        if (framesRemaining == 0) {
+            // Reached the end
+            if (self->staticLoop) {
+                self->staticCurrentFrame = 0; // Rewind
+                continue; // Re-evaluate in next loop iteration
+            }
+            else {
+                break; // Stop filling, return 0 (or whatever we have)
+            }
+        }
+
+        // Determine how many frames to copy this pass
+        DWORD framesToCopy = (framesToFill < framesRemaining) ? framesToFill : framesRemaining;
+        if (framesToCopy == 0) break; // Should not happen
+
+        // Copy data
+        memcpy(outBuffer + (framesFilled * ch),
+            self->staticPcmData + (self->staticCurrentFrame * ch),
+            framesToCopy * ch * sizeof(short));
+
+        // Advance pointers/counters
+        self->staticCurrentFrame += framesToCopy;
+        framesFilled += framesToCopy;
+        framesToFill -= framesToCopy;
+    }
+
+    return framesFilled; // ThreadLoop will zero-fill if this is < frames
 }
 
 BOOL WasapiAudioEngine::StartThread() {
@@ -162,8 +219,7 @@ void WasapiAudioEngine::ThreadLoop() {
 
 BOOL WasapiAudioEngine::PlayStream(UINT sampleRate, UINT channels, PcmFillProc fillProc, void* userData, BOOL loop) {
     if (!device || !fillProc) return FALSE;
-
-    Stop(); // Clean up existing playback
+    if (!staticPcmData) { Stop(); } // Clean up existing playback if not static method
 
     fill = fillProc;
     user = userData;
@@ -234,6 +290,19 @@ BOOL WasapiAudioEngine::PlayStream(UINT sampleRate, UINT channels, PcmFillProc f
     }
 
     return TRUE;
+}
+
+BOOL WasapiAudioEngine::PlayStaticBuffer(UINT sampleRate, UINT channels, short* pcmData, DWORD totalFrames, BOOL loop) {
+    if (!device || !pcmData || totalFrames == 0) return FALSE;
+
+    Stop();
+
+    staticPcmData = pcmData;
+    staticTotalFrames = totalFrames;
+    staticCurrentFrame = 0;
+    staticLoop = loop;
+
+    return PlayStream(sampleRate, channels, FillFromStaticMemory, this, loop);
 }
 
 void WasapiAudioEngine::Stop() {

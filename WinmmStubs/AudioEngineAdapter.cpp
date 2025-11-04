@@ -39,6 +39,10 @@ namespace {
         return gVistaOrLater ? gWAS.PlayStream(sr, ch, fill, NULL, loop)
             : gDS.PlayStream(sr, ch, fill, NULL, loop);
     }
+    inline BOOL Engine_PlayStatic(UINT sr, UINT ch, short* pcm, DWORD frames, BOOL loop) {
+        return gVistaOrLater ? gWAS.PlayStaticBuffer(sr, ch, pcm, frames, loop)
+            : gDS.PlayStaticBuffer(sr, ch, pcm, frames, loop);
+    }
     inline void Engine_Stop() { gVistaOrLater ? gWAS.Stop() : gDS.Stop(); }
     inline void Engine_Pause() { gVistaOrLater ? gWAS.Pause() : gDS.Pause(); }
     inline void Engine_Resume() { gVistaOrLater ? gWAS.Resume() : gDS.Resume(); }
@@ -319,14 +323,13 @@ namespace {
 
     // ====== Playback Mode 1 (Full Buffer, Pre-decode) ======
 
-        // FullBuffer Globals
+    // FullBuffer Globals
     static AudioDecoder        gDec_Full; // Decoder (for format reference)
     static AD_Format           gFmt_Full;
     static BOOL                gFmtInit_Full = FALSE;
 
     static std::vector<short>  gPcm;      // Pre-buffer
     static DWORD               gFrames = 0; // Total frames in gPcm
-    static DWORD               gPos = 0;    // Current frame position in gPcm
 
     // Segment map (maps concatenated buffer <-> track/section)
     struct FullSeg {
@@ -398,67 +401,28 @@ namespace {
         return (done > 0);
     }
 
-    // Update (track, track_ms) from concatenated buffer position gPos
-    static void UpdateStatusFromConcat() {
+    // Update (track) from concatenated buffer position (in frames)
+    static void UpdateStatusFromConcat(DWORD posFrames) {
         if (!gFmtInit_Full || gFullSegCount <= 0) { return; }
 
-        DWORD pos = (gPos < gFrames) ? gPos : (gFrames ? gFrames - 1 : 0);
+        DWORD pos = (posFrames < gFrames) ? posFrames : (gFrames ? gFrames - 1 : 0);
         for (int i = 0; i < gFullSegCount; ++i) {
             const FullSeg& s = gFullSegs[i];
             DWORD segLen = (s.trackEndFrame - s.trackStartFrame);
             if (pos < s.concatStartFrame + segLen) {
                 // Found the segment
-                DWORD inSeg = pos - s.concatStartFrame;
-                DWORD trackFrame = s.trackStartFrame + inSeg;
                 gStatusTrack = s.track;
                 return;
             }
         }
-        // Past the end Report 0ms of the last track
+        // Past the end Report last track
         const FullSeg& last = gFullSegs[gFullSegCount - 1];
         gStatusTrack = last.track;
     }
 
-    // Audio Engine Callback (Full Buffer Mode)
-    static DWORD WINAPI FillFromMemory(short* out, DWORD frames, void*) {
-        if (!gFmtInit_Full || gPcm.empty()) { ZeroMemory(out, frames * 2 * sizeof(short)); return frames; }
-        const DWORD ch = gFmt_Full.channels;
-        DWORD remain = (gFrames > gPos) ? (gFrames - gPos) : 0;
-        DWORD n = MinDW(frames, remain);
-        if (n) {
-            memcpy(out, &gPcm[(size_t)gPos * ch], n * ch * sizeof(short));
-            gPos += n;
-        }
-        UpdateStatusFromConcat();
-
-        if (n < frames) {
-            // Reached the end of the buffer
-            if (gLoop) {
-                DWORD left = frames - n;
-                DWORD take = MinDW(left, gFrames); // Take from start
-                if (take) {
-                    memcpy(out + n * ch, &gPcm[0], take * ch * sizeof(short));
-                    gPos = take;
-                    n += take;
-                    UpdateStatusFromConcat();
-                }
-                if (n < frames) ZeroMemory(out + n * ch, (frames - n) * ch * sizeof(short));
-            }
-            else {
-                // MCICDA compatibility: At end, report last track / 0ms
-                if (gFullSegCount > 0) {
-                    const FullSeg& last = gFullSegs[gFullSegCount - 1];
-                    gStatusTrack = last.track;
-                }
-                ZeroMemory(out + n * ch, (frames - n) * ch * sizeof(short));
-            }
-        }
-        return frames;
-    }
-
     // Main setup function for Full Buffer mode
     static BOOL BuildFullBuffer(int fromTrack, DWORD fromMs, int toTrack, DWORD toMs) {
-        gPcm.clear(); gPcm.shrink_to_fit(); gFrames = gPos = 0;
+        gPcm.clear(); gPcm.shrink_to_fit(); gFrames = 0;
         ZeroMemory(&gFmt_Full, sizeof(gFmt_Full)); gFmtInit_Full = FALSE;
         gFullSegCount = 0;
 
@@ -524,7 +488,6 @@ namespace {
         if (!gFmtInit_Full || gFullSegCount <= 0 || totalFramesAccum == 0) return FALSE;
 
         gFrames = totalFramesAccum;
-        gPos = 0;
 
         // Status at start (start of the first segment)
         gEverPlayed = TRUE;
@@ -755,7 +718,7 @@ namespace AudioEngine {
         Engine_Shutdown();
 
         // --- Clear Full Buffer State ---
-        gPcm.clear(); gPcm.shrink_to_fit(); gFrames = gPos = 0;
+        gPcm.clear(); gPcm.shrink_to_fit(); gFrames = 0;
         ZeroMemory(&gFmt_Full, sizeof(gFmt_Full)); gFmtInit_Full = FALSE;
         gFullSegCount = 0;
 
@@ -828,17 +791,17 @@ namespace AudioEngine {
         gNotify = notifyHwnd;
 
         // Runtime switching based on the flag
-        if (g_UseFullBufferMode)
-        {
+        if (g_UseFullBufferMode) {
             // --- Full Buffer Mode ---
             if (!BuildFullBuffer(fromTrack, fromMs, toTrack, toMs)) return FALSE;
             // Store actual start time and total duration
             gRangeStartMs = (gFullSegCount > 0) ? FramesToMs(gFullSegs[0].trackStartFrame, gFmt_Full) : 0;
             gRangeTotalMs = FramesToMs(gFrames, gFmt_Full); // Total frames in buffer
-            if (!Engine_Play(gFmt_Full.sampleRate, gFmt_Full.channels, gLoop, FillFromMemory)) return FALSE;
+
+            // Call static buffer playback
+            if (!Engine_PlayStatic(gFmt_Full.sampleRate, gFmt_Full.channels, gPcm.data(), gFrames, gLoop)) return FALSE;
         }
-        else
-        {
+        else {
             // --- Streaming Mode ---
             if (!BuildSegments(fromTrack, fromMs, toTrack, toMs)) return FALSE;
             // Store actual start time and total duration
@@ -863,7 +826,7 @@ namespace AudioEngine {
         Engine_Stop();
 
         // --- Clear Full Buffer State ---
-        gPcm.clear(); gPcm.shrink_to_fit(); gFrames = gPos = 0;
+        gPcm.clear(); gPcm.shrink_to_fit(); gFrames = 0;
         ZeroMemory(&gFmt_Full, sizeof(gFmt_Full)); gFmtInit_Full = FALSE;
         gFullSegCount = 0;
 
@@ -928,7 +891,9 @@ namespace AudioEngine {
         // Calculate absolute position:
         // Start of the first segment + total elapsed time from engine
         DWORD elapsedMs = Engine_PosMs();
-        DWORD absoluteMs = gRangeStartMs + elapsedMs;
+        if (g_UseFullBufferMode && gFmtInit_Full) {
+            UpdateStatusFromConcat(MsToFrame(elapsedMs, gFmt_Full));
+        }
 
         // Note: This simple addition may not account for gaps (missing tracks)
         // in a multi-track range. A more complex fix would iterate segments.
@@ -937,6 +902,7 @@ namespace AudioEngine {
 
         // For simple playback, we can just return elapsedMs relative to the start
         // of the *first track played*.
+        DWORD absoluteMs = gRangeStartMs + elapsedMs;
         return absoluteMs;
     }
 

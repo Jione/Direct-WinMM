@@ -321,9 +321,87 @@ BOOL DSoundAudioEngine::PlayStream(UINT sampleRate, UINT channels, PcmFillProc f
     return TRUE;
 }
 
+BOOL DSoundAudioEngine::PlayStaticBuffer(UINT sampleRate, UINT channels, short* pcmData, DWORD totalFrames, BOOL loop)
+{
+    if (!ds || !pcmData || totalFrames == 0) return FALSE;
+
+    Stop(); // Clean up existing playback (stops thread if running)
+
+    fill = NULL; // Mark as *non-streaming* (static)
+    user = NULL;
+    this->loop = loop ? TRUE : FALSE;
+
+    // --- Create a static buffer exactly matching the data size ---
+    samplerate = sampleRate; this->channels = channels;
+    ZeroMemory(&wfx, sizeof(wfx));
+    wfx.wFormatTag = WAVE_FORMAT_PCM;
+    wfx.nChannels = (WORD)channels;
+    wfx.nSamplesPerSec = sampleRate;
+    wfx.wBitsPerSample = 16;
+    wfx.nBlockAlign = (wfx.nChannels * wfx.wBitsPerSample) / 8;
+    wfx.nAvgBytesPerSec = wfx.nSamplesPerSec * wfx.nBlockAlign;
+
+    bufferBytes = totalFrames * wfx.nBlockAlign;
+    if (bufferBytes == 0) return FALSE;
+
+    DSBUFFERDESC desc; ZeroMemory(&desc, sizeof(desc));
+    desc.dwSize = sizeof(desc);
+    // Flags: Use default flags, NOT DSBCAPS_STATIC which is obsolete/problematic
+    desc.dwFlags = DSBCAPS_GETCURRENTPOSITION2 | DSBCAPS_GLOBALFOCUS | DSBCAPS_CTRLVOLUME;
+    desc.dwBufferBytes = bufferBytes;
+    desc.lpwfxFormat = &wfx;
+
+    HRESULT hr = ds->CreateSoundBuffer(&desc, &secondary, NULL);
+    if (FAILED(hr)) {
+        DestroySecondary();
+        return FALSE;
+    }
+
+    // --- Lock, Copy data, Unlock ---
+    VOID* p1 = NULL; DWORD b1 = 0;
+    hr = secondary->Lock(0, bufferBytes, &p1, &b1, NULL, NULL, 0);
+    if (SUCCEEDED(hr) && p1 && b1 > 0)
+    {
+        memcpy(p1, pcmData, b1);
+        secondary->Unlock(p1, b1, NULL, NULL);
+    }
+    else
+    {
+        DestroySecondary();
+        return FALSE;
+    }
+
+    // Apply initial volume/pan/mute state
+    SetVolume(volume01);
+    SetSubVolume(subVolL, subVolR);
+    SetChannelMute(muteL, muteR);
+
+    // --- Play ---
+    totalBytesPlayed = 0;
+    lastPlayCursor = 0;
+    running = 1;
+    paused = 0;
+
+    secondary->SetCurrentPosition(0);
+    secondary->Play(0, 0, loop ? DSBPLAY_LOOPING : 0);
+
+    return TRUE;
+}
+
 void DSoundAudioEngine::Stop() {
-    StopThread();
-    DestroySecondary();
+    if (fill != NULL) {
+        StopThread(); // Only stop thread if we were streaming
+    }
+
+    if (secondary) {
+        secondary->Stop(); // Always stop the buffer
+    }
+
+    DestroySecondary(); // This clears secondary, fill, user, etc.
+
+    // Ensure thread-related flags are clear
+    running = 0;
+    paused = 0;
 }
 
 void DSoundAudioEngine::Pause() {
@@ -414,9 +492,20 @@ BOOL DSoundAudioEngine::IsPlaying() const { return (secondary != NULL) && (runni
 BOOL DSoundAudioEngine::IsPaused() const { return (paused == 1); }
 
 DWORD DSoundAudioEngine::GetPositionMs() const {
-    if (!secondary || wfx.nSamplesPerSec == 0 || wfx.nBlockAlign == 0) return 0;
-    //dprintf("total time=%d", (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec));
-    return (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec);
+    if (!secondary || wfx.nAvgBytesPerSec == 0) return 0;
+
+    // Streaming mode: Use the thread-accumulated value
+    if (fill != NULL) {
+        //dprintf("total time=%d", (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec));
+        return (DWORD)((totalBytesPlayed * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec);
+    }
+    // Static buffer mode: Get hardware cursor directly
+    else {
+        DWORD playCursor = 0;
+        if (FAILED(secondary->GetCurrentPosition(&playCursor, NULL))) return 0;
+        //dprintf("total time=%d", (DWORD)(((ULONGLONG)playCursor * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec));
+        return (DWORD)(((ULONGLONG)playCursor * 1000ULL) / (ULONGLONG)wfx.nAvgBytesPerSec);
+    }
 }
 UINT  DSoundAudioEngine::CurrentSampleRate() const { return samplerate; }
 UINT  DSoundAudioEngine::CurrentChannels()   const { return channels; }

@@ -8,7 +8,7 @@ namespace {
     static BOOL gInited = FALSE;
 
     static DeviceContext gTable[DT_MAX_DEVICES];
-    static MCIDEVICEID   gDeviceID = 0xCAFE; // Arbitrary start value (to avoid collisions)
+    static MCIDEVICEID   gDeviceID = 77; // Arbitrary start value (to avoid collisions)
 
     static IDevice       gDeviceInfo{ 0, };
 
