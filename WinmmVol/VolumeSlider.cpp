@@ -240,7 +240,7 @@ namespace {
 namespace VolumeSlider {
     BOOL RegisterWindowClass(HINSTANCE hInstance) {
         // Register custom slider class first
-        if (!CustomSlider::RegisterClass(hInstance)) return FALSE;
+        if (!CustomSlider::RegisterSliderClass(hInstance)) return FALSE;
 
         WNDCLASSEXW wcex = { sizeof(wcex) };
         wcex.style = CS_HREDRAW | CS_VREDRAW;

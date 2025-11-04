@@ -53,12 +53,20 @@ namespace TrayIcon {
         HMENU hAdvancedMenu = GetSubMenu(hSubMenu, 0);
 
         // --- (Group 1) Set radio check for Buffer Mode ---
-        BOOL isFullBuffer = RegistryManager::GetBufferMode();
-        CheckMenuRadioItem(hAdvancedMenu,
-            IDM_MODE_STREAMING,
-            IDM_MODE_FULLBUFFER,
-            isFullBuffer ? IDM_MODE_FULLBUFFER : IDM_MODE_STREAMING,
-            MF_BYCOMMAND);
+        int bufferMode = RegistryManager::GetBufferMode(); // Gets 0, 1, or 2
+        UINT bufferItemToCheck = IDM_MODE_AUTO; // Default to Auto
+        if (bufferMode == 1) {
+            bufferItemToCheck = IDM_MODE_STREAMING;
+        }
+        else if (bufferMode == 2) {
+            bufferItemToCheck = IDM_MODE_FULLBUFFER;
+        }
+
+        CheckMenuRadioItem(hAdvancedMenu,   // Menu handle
+            IDM_MODE_AUTO,                  // First item in group
+            IDM_MODE_FULLBUFFER,            // Last item in group
+            bufferItemToCheck,              // Item to check
+            MF_BYCOMMAND);                  // Find items by ID
 
         // --- (Group 2) Set radio check for Engine Mode ---
         int engineMode = RegistryManager::GetEngineMode(); // Get 0, 1, or 2
@@ -70,7 +78,7 @@ namespace TrayIcon {
             itemToCheck = IDM_ENGINE_WASAPI;
         }
 
-        CheckMenuRadioItem(hAdvancedMenu,       // Menu handle
+        CheckMenuRadioItem(hAdvancedMenu,   // Menu handle
             IDM_ENGINE_AUTO,                // First item in group
             IDM_ENGINE_WASAPI,              // Last item in group
             itemToCheck,                    // Item to check

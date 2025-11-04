@@ -9,7 +9,7 @@
 
 class CustomSlider {
 public:
-    static BOOL RegisterClass(HINSTANCE hInst);
+    static BOOL RegisterSliderClass(HINSTANCE hInst);
     static HWND Create(HINSTANCE hInst, HWND hParent, int x, int y, int w, int h, int controlId);
 
     // API

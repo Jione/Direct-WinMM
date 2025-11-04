@@ -67,11 +67,14 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
     case WM_COMMAND: // Menu item selected
         switch (LOWORD(wParam)) {
         // Handle Buffer Mode selection
+        case IDM_MODE_AUTO:
+            RegistryManager::SetBufferMode(0); // 0 = Auto
+            break;
         case IDM_MODE_STREAMING:
-            RegistryManager::SetBufferMode(FALSE); // Set to Streaming
+            RegistryManager::SetBufferMode(1); // 1 = Streaming
             break;
         case IDM_MODE_FULLBUFFER:
-            RegistryManager::SetBufferMode(TRUE); // Set to Full Buffer
+            RegistryManager::SetBufferMode(2); // 2 = Full Buffer
             break;
         // Handle Engine Mode selection
         case IDM_ENGINE_AUTO:

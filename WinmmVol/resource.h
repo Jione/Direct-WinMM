@@ -12,13 +12,16 @@
 
 // Tray Menu Commands
 #define IDM_EXIT            1001 // Exit menu item ID
-#define IDM_MODE_STREAMING  1002 // Streaming mode item ID
-#define IDM_MODE_FULLBUFFER 1003 // Full Buffer mode item ID
 
 // Engine Mode Menu IDs
-#define IDM_ENGINE_AUTO     1004 // Engine: Auto-detect
-#define IDM_ENGINE_DS       1005 // Engine: Force DirectSound
-#define IDM_ENGINE_WASAPI   1006 // Engine: Force WASAPI
+#define IDM_MODE_AUTO       1002 // Buffer: Auto-detect
+#define IDM_MODE_STREAMING  1003 // Buffer: Streaming
+#define IDM_MODE_FULLBUFFER 1004 // Buffer: Full Buffer
+
+// Engine Mode Menu IDs
+#define IDM_ENGINE_AUTO     1005 // Engine: Auto-detect
+#define IDM_ENGINE_DS       1006 // Engine: Force DirectSound
+#define IDM_ENGINE_WASAPI   1007 // Engine: Force WASAPI
 
 // Volume Slider Controls
 #define IDC_VOLUMESLIDER    2001 // Trackbar control ID

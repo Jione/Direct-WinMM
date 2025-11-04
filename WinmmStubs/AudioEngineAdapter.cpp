@@ -20,6 +20,12 @@ namespace {
     // 2 = Force WASAPI
     static int gEngineOverride = 0;
 
+    // Runtime Buffering Mode Switch
+    // 0 = Auto (Default: FullBuffer on DS, Streaming on WASAPI)
+    // 1 = Force Streaming
+    // 2 = Force Full Buffer
+    static int gBufferOverride = 0;
+
     typedef LONG(WINAPI* RtlGetVersion_t)(PRTL_OSVERSIONINFOW);
     static BOOL IsVistaOrLater() {
         static int cached = -1;
@@ -39,6 +45,17 @@ namespace {
         if (gEngineOverride == 1) return FALSE; // Force DirectSound
         if (gEngineOverride == 2) return TRUE;  // Force WASAPI
         return gVistaOrLater; // Auto mode
+    }
+
+    // Internal helper to determine if FullBuffer mode should be used, respecting the override and OS defaults.
+    inline BOOL UseFullBuffer() {
+        if (gBufferOverride == 1) return FALSE; // Force Streaming
+        if (gBufferOverride == 2) return TRUE;  // Force Full Buffer
+
+        // Auto mode (0):
+        // Use FullBuffer for DirectSound (XP default)
+        // Use Streaming for WASAPI (Vista+ default)
+        return !UseWASAPI();
     }
 
     // Engine Instances
@@ -73,11 +90,6 @@ namespace {
     static int  gCurTrack = -1;
     static BOOL gLoop = TRUE;
     static HWND gNotify = NULL;
-
-    // Runtime Buffering Mode Switch
-    // FALSE = Streaming (default)
-    // TRUE = Full Buffer (pre-decode)
-    static BOOL g_UseFullBufferMode = FALSE;
 
     // Volume Cache (Adapter Master/Sub)
     static float gMasterVol = 1.0f;
@@ -713,7 +725,7 @@ namespace AudioEngine {
         if (gInited) return TRUE;
         gVistaOrLater = IsVistaOrLater();
         dprintf("Initialize audio with %s engine (Buffer: %s)",
-            (UseWASAPI() ? "WASAPI" : "DirectSound"), (g_UseFullBufferMode ? "Full" : "Streaming"));
+            (UseWASAPI() ? "WASAPI" : "DirectSound"), (UseFullBuffer() ? "Full" : "Streaming"));
         if (!Engine_Initialize(initWindow ? initWindow : GetDesktopWindow())) return FALSE;
         gInited = TRUE;
 
@@ -756,19 +768,21 @@ namespace AudioEngine {
         }
     }
 
-    // Set the buffering strategy
-    void SetBufferMode(BOOL useFullBuffer) {
-        BOOL newMode = useFullBuffer ? TRUE : FALSE;
+    // Set the buffering strategy (0=Auto, 1=Streaming, 2=Full)
+    void SetBufferMode(int mode) {
+        if (mode < 0 || mode > 2) mode = 0;
+        if (mode == gBufferOverride) return;
 
-        if (newMode == g_UseFullBufferMode) {
-            return;
+        // Check if the *effective* mode (what's currently running) will change
+        BOOL prevMode = UseFullBuffer();
+        BOOL newMode = ((mode == 0) ? !UseWASAPI() : (mode != 1)) ? TRUE : FALSE;
+
+        // If the effective mode changed AND the engine was already initialized, shut it down.
+        if (gInited && (prevMode != newMode)) {
+            Shutdown(); // This stops playback and sets gInited = FALSE
         }
-
-        if (Engine_IsPlaying() || Engine_IsPaused()) {
-            StopAll();
-        }
-
-        g_UseFullBufferMode = newMode;
+        
+        gBufferOverride = mode;
     }
 
     // Sets the audio engine override.
@@ -820,7 +834,7 @@ namespace AudioEngine {
         gNotify = notifyHwnd;
 
         // Runtime switching based on the flag
-        if (g_UseFullBufferMode) {
+        if (UseFullBuffer()) {
             // --- Full Buffer Mode ---
             if (!BuildFullBuffer(fromTrack, fromMs, toTrack, toMs)) return FALSE;
             // Store actual start time and total duration
@@ -920,7 +934,7 @@ namespace AudioEngine {
         // Calculate absolute position:
         // Start of the first segment + total elapsed time from engine
         DWORD elapsedMs = Engine_PosMs();
-        if (g_UseFullBufferMode && gFmtInit_Full) {
+        if (UseFullBuffer() && gFmtInit_Full) {
             UpdateStatusFromConcat(MsToFrame(elapsedMs, gFmt_Full));
         }
 

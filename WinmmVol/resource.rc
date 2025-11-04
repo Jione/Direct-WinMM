@@ -18,6 +18,7 @@ POPUP "&TrayMenu"
 BEGIN
 POPUP "&Advanced"
 BEGIN
+MENUITEM "Buffer mode: Auto", IDM_MODE_AUTO
 MENUITEM "Buffer mode: Streaming", IDM_MODE_STREAMING
 MENUITEM "Buffer mode: Full", IDM_MODE_FULLBUFFER
 MENUITEM SEPARATOR

@@ -28,9 +28,9 @@ namespace RegistryManager {
     BOOL SetMute(BOOL isMute);
 
     // Gets buffer mode state (TRUE if FullBuffer, FALSE if Streaming)
-    BOOL GetBufferMode();
+    int GetBufferMode();
     // Sets buffer mode state
-    BOOL SetBufferMode(BOOL isFullBuffer);
+    BOOL SetBufferMode(int bufferMode);
 
     // Gets Engine mode state
     int GetEngineMode();

@@ -6,9 +6,9 @@ const wchar_t* const PLAYER_MODE_VALUE_NAME = L"PlayerMode";
 
 // --- PlayerMode Bitmask Definitions ---
 // DWORD (32-bit) layout:
-// [31-20] Reserved (12 bits)
-// [19-18] Engine Mode (2 bits: 00=Auto, 01=DS, 10=WASAPI)
-// [17]    Buffer Mode (1 bit: 0=Streaming, 1=FullBuffer)
+// [31-19] Reserved (11 bits)
+// [18-17] Engine Mode (2 bits: 00=Auto, 01=DS, 10=WASAPI)
+// [17-16] Buffer Mode (2 bits: 00=Auto, 01=Streaming, 10=FullBuffer)
 // [16]    Mute State (1 bit: 0=Unmuted, 1=Muted)
 // [15-0]  Volume (16 bits: 0-65535)
 
@@ -20,13 +20,13 @@ const DWORD PM_VOL_MASK = 0xFFFF << PM_VOL_SHIFT;
 const DWORD PM_MUTE_SHIFT = 16;
 const DWORD PM_MUTE_MASK = 1 << PM_MUTE_SHIFT;
 
-// Buffer Mode (1 bit)
+// Buffer Mode (2 bits)
 const DWORD PM_BUFFER_SHIFT = 17;
-const DWORD PM_BUFFER_MASK = 1 << PM_BUFFER_SHIFT;
+const DWORD PM_BUFFER_MASK = 3 << PM_BUFFER_SHIFT; // 3 (0b11) for 2 bits
 
 // Engine Mode (2 bits)
-const DWORD PM_ENGINE_SHIFT = 18;
-const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT;
+const DWORD PM_ENGINE_SHIFT = 19;
+const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT; // 3 (0b11) for 2 bits
 
 // Default value: Volume=100% (0xFFFF), Mute=0, Buffer=0, Engine=0
 const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x0000FFFF;
@@ -115,7 +115,7 @@ namespace RegistryManager {
         return (status == ERROR_SUCCESS);
     }
 
-    // --- (NEW) Bitmask Helper Implementations ---
+    // --- Bitmask Helper Implementations ---
 
     DWORD GetVolume() {
         return (GetPlayerMode() & PM_VOL_MASK) >> PM_VOL_SHIFT;
@@ -139,13 +139,14 @@ namespace RegistryManager {
         return SetPlayerMode(mode);
     }
 
-    BOOL GetBufferMode() {
-        return (GetPlayerMode() & PM_BUFFER_MASK) != 0;
+    int GetBufferMode() {
+        return (int)((GetPlayerMode() & PM_BUFFER_MASK) >> PM_BUFFER_SHIFT);
     }
 
-    BOOL SetBufferMode(BOOL isFullBuffer) {
+    BOOL SetBufferMode(int bufferMode) {
+        if (bufferMode < 0 || bufferMode > 3) bufferMode = 0; // Clamp to 2 bits (0-3)
         DWORD mode = GetPlayerMode();
-        DWORD dwBufferMode = isFullBuffer ? 1 : 0;
+        DWORD dwBufferMode = (DWORD)bufferMode;
         mode = (mode & ~PM_BUFFER_MASK) | (dwBufferMode << PM_BUFFER_SHIFT);
         return SetPlayerMode(mode);
     }
@@ -162,7 +163,7 @@ namespace RegistryManager {
         return SetPlayerMode(mode);
     }
 
-    // --- (UPDATED) Percentage Helpers ---
+    // --- Percentage Helpers ---
 
     int GetVolumePercent() {
         return VolumeDwordToPercent(GetVolume());

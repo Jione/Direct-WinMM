@@ -50,8 +50,8 @@ namespace AudioEngine {
     BOOL  GetRangeLengthMs(int fromTrack, DWORD fromMs, int toTrack, DWORD toMs, DWORD* outMs);
 
     // Set Buffer mode
-    // @param TRUE = Full Buffer, FALSE = Streaming(Default)
-    void  SetBufferMode(BOOL useFullBuffer);
+    // @param mode 0 = Auto(Default), 1 = Force Streaming, 2 = Force FullBuffer
+    void  SetBufferMode(int mode);
 
     // Forces a specific audio engine to be used.
     // @param mode 0 = Auto(Default), 1 = Force DirectSound, 2 = Force WASAPI

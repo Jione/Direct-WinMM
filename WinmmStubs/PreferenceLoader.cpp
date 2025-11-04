@@ -25,13 +25,13 @@ const DWORD PM_VOL_MASK = 0xFFFF << PM_VOL_SHIFT;
 const DWORD PM_MUTE_SHIFT = 16;
 const DWORD PM_MUTE_MASK = 1 << PM_MUTE_SHIFT;
 
-// Buffer Mode (1 bit)
+// Buffer Mode (2 bits)
 const DWORD PM_BUFFER_SHIFT = 17;
-const DWORD PM_BUFFER_MASK = 1 << PM_BUFFER_SHIFT;
+const DWORD PM_BUFFER_MASK = 3 << PM_BUFFER_SHIFT; // 3 (0b11) for 2 bits
 
-// Engine Mode (2 bits)
-const DWORD PM_ENGINE_SHIFT = 18;
-const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT;
+// Engine Mode (2 bits) - Shifted up by 1
+const DWORD PM_ENGINE_SHIFT = 19;
+const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT; // 3 (0b11) for 2 bits
 
 // Default value: Volume=100% (0xFFFF), Mute=0, Buffer=0, Engine=0
 const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x0000FFFF;
@@ -107,7 +107,7 @@ namespace {
                     // --- Extract values from bitmask ---
                     DWORD dwVolume = (dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT;
                     BOOL bMute = (dwPlayerMode & PM_MUTE_MASK) != 0;
-                    BOOL bFullBuffer = (dwPlayerMode & PM_BUFFER_MASK) != 0;
+                    int nBufferMode = (int)((dwPlayerMode & PM_BUFFER_MASK) >> PM_BUFFER_SHIFT);
                     int nEngineMode = (int)((dwPlayerMode & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
 
                     // --- Apply all settings ---
@@ -125,8 +125,8 @@ namespace {
                     AudioEngine::SetMasterVolume(finalVolume);
 
                     // Apply Buffer Mode Logic
-                    dprintf(L"Registry change detected. Setting BufferMode=%s.", bFullBuffer ? L"Full" : L"Streaming");
-                    AudioEngine::SetBufferMode(bFullBuffer);
+                    dprintf(L"Registry change detected. Setting BufferMode=%d.", nBufferMode);
+                    AudioEngine::SetBufferMode(nBufferMode);
 
                     // Apply Engine Mode Logic
                     dprintf(L"Registry change detected. Setting EngineMode=%d.", nEngineMode);
@@ -246,7 +246,7 @@ namespace PreferenceLoader {
             // Extract values
             DWORD dwVolume = (dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT;
             BOOL bMute = (dwPlayerMode & PM_MUTE_MASK) != 0;
-            BOOL bFullBuffer = (dwPlayerMode & PM_BUFFER_MASK) != 0;
+            int nBufferMode = (int)((dwPlayerMode & PM_BUFFER_MASK) >> PM_BUFFER_SHIFT);
             int nEngineMode = (int)((dwPlayerMode & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
 
             // Apply Initial Volume Based on Mute State
@@ -261,8 +261,8 @@ namespace PreferenceLoader {
             }
 
             // Apply Initial Buffer Mode
-            AudioEngine::SetBufferMode(bFullBuffer);
-            dprintf(L"Initial state: BufferMode=%s. (PlayerMode=0x%X)", bFullBuffer ? L"Full" : L"Streaming", dwPlayerMode);
+            AudioEngine::SetBufferMode(nBufferMode);
+            dprintf(L"Initial state: BufferMode=%d. (PlayerMode=0x%X)", nBufferMode, dwPlayerMode);
 
             // Apply Initial Engine Mode
             AudioEngine::SetEngineOverride(nEngineMode);

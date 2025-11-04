@@ -15,7 +15,7 @@ static SliderState* GetState(HWND hWnd) {
     return reinterpret_cast<SliderState*>(GetWindowLongPtr(hWnd, GWLP_USERDATA));
 }
 
-BOOL CustomSlider::RegisterClass(HINSTANCE hInst) {
+BOOL CustomSlider::RegisterSliderClass(HINSTANCE hInst) {
     WNDCLASSEXW wc = { sizeof(wc) };
     wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     wc.lpfnWndProc = CustomSlider::WndProc;
