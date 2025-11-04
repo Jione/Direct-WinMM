@@ -1,7 +1,79 @@
 #include "TrayIcon.h"
 #include "resource.h"
 #include "RegistryManager.h"
+#include "UiLang.h"
 #include <shellapi.h> // For Shell_NotifyIcon
+
+// Find the submenu item index that hosts a given submenu HMENU
+static int FindSubmenuIndex(HMENU hRootPopup, HMENU hSubmenu) {
+    if (!hRootPopup || !hSubmenu) return -1;
+    const int count = GetMenuItemCount(hRootPopup);
+    for (int i = 0; i < count; ++i) {
+        if (GetSubMenu(hRootPopup, i) == hSubmenu) return i;
+    }
+    return -1;
+}
+
+// Robustly set submenu caption without deleting the item
+static void SetSubmenuCaptionSafe(HMENU hRootPopup, HMENU hSubmenu, const wchar_t* newText) {
+    if (!hRootPopup || !hSubmenu || !newText) return;
+
+    int pos = FindSubmenuIndex(hRootPopup, hSubmenu);
+    if (pos < 0) return;
+
+    MENUITEMINFOW mii = {};
+    mii.cbSize = sizeof(mii);
+    // Keep submenu handle and type, just set caption as string
+    mii.fMask = MIIM_SUBMENU | MIIM_FTYPE | MIIM_STRING;
+    mii.fType = MFT_STRING;
+    mii.hSubMenu = hSubmenu;
+    mii.dwTypeData = const_cast<LPWSTR>(newText);
+    mii.cch = (UINT)lstrlenW(newText);
+    SetMenuItemInfoW(hRootPopup, pos, TRUE, &mii);
+}
+
+static HMENU FindAdvancedSubmenu(HMENU hRootPopup) {
+    if (!hRootPopup) return NULL;
+    const int count = GetMenuItemCount(hRootPopup);
+    for (int i = 0; i < count; ++i) {
+        HMENU h = GetSubMenu(hRootPopup, i);
+        if (h) return h;
+    }
+    return NULL;
+}
+
+static void LocalizeTrayMenu(HMENU hRootPopup) {
+    if (!hRootPopup) return;
+
+    std::wstring s;
+
+    // Root items: About / Exit
+    ModifyMenuW(hRootPopup, IDM_ABOUT, MF_BYCOMMAND | MF_STRING, IDM_ABOUT,
+        UILang::Get(L"MENU_ABOUT", s));
+    ModifyMenuW(hRootPopup, IDM_EXIT, MF_BYCOMMAND | MF_STRING, IDM_EXIT,
+        UILang::Get(L"MENU_EXIT", s));
+
+    // Localize submenu items
+    ModifyMenuW(hRootPopup, IDM_MODE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_MODE_AUTO,
+        UILang::Get(L"MENU_ADVANCED_BUFFER_AUTO", s));
+    ModifyMenuW(hRootPopup, IDM_MODE_STREAMING, MF_BYCOMMAND | MF_STRING, IDM_MODE_STREAMING,
+        UILang::Get(L"MENU_ADVANCED_STREAMING", s));
+    ModifyMenuW(hRootPopup, IDM_MODE_FULLBUFFER, MF_BYCOMMAND | MF_STRING, IDM_MODE_FULLBUFFER,
+        UILang::Get(L"MENU_ADVANCED_FULLBUFFER", s));
+
+    ModifyMenuW(hRootPopup, IDM_ENGINE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_AUTO,
+        UILang::Get(L"MENU_ADVANCED_ENGINE_AUTO", s));
+    ModifyMenuW(hRootPopup, IDM_ENGINE_DS, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_DS,
+        UILang::Get(L"MENU_ADVANCED_DS", s));
+    ModifyMenuW(hRootPopup, IDM_ENGINE_WASAPI, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_WASAPI,
+        UILang::Get(L"MENU_ADVANCED_WASAPI", s));
+
+    // Localize Advanced submenu
+    HMENU hAdvanced = FindAdvancedSubmenu(hRootPopup);
+    if (hAdvanced) {
+        SetSubmenuCaptionSafe(hRootPopup, hAdvanced, UILang::Get(L"MENU_ADVANCED", s));
+    }
+}
 
 namespace {
     const UINT TRAY_ICON_ID = 1; // Unique ID for our icon
@@ -49,8 +121,10 @@ namespace TrayIcon {
             return;
         }
 
+        LocalizeTrayMenu(hSubMenu);
+
         // Dynamically check the correct radio item
-        HMENU hAdvancedMenu = GetSubMenu(hSubMenu, 0);
+        HMENU hAdvancedMenu = FindAdvancedSubmenu(hSubMenu);
 
         // --- (Group 1) Set radio check for Buffer Mode ---
         int bufferMode = RegistryManager::GetBufferMode(); // Gets 0, 1, or 2

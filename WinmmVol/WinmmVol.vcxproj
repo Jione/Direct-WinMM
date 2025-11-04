@@ -23,33 +23,33 @@
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{b05c42b5-f428-4588-bb2e-37f25cb42bd0}</ProjectGuid>
     <RootNamespace>WinmmVol</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>7.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v141_xp</PlatformToolset>
-    <CharacterSet>NotSet</CharacterSet>
+    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v141_xp</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>NotSet</CharacterSet>
+    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <CharacterSet>NotSet</CharacterSet>
+    <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>NotSet</CharacterSet>
+    <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -167,17 +167,22 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AboutDialog.cpp" />
     <ClCompile Include="CustomSlider.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="RegistryManager.cpp" />
     <ClCompile Include="TrayIcon.cpp" />
+    <ClCompile Include="UiLang.cpp" />
     <ClCompile Include="VolumeSlider.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AboutDialog.h" />
     <ClInclude Include="CustomSlider.h" />
     <ClInclude Include="RegistryManager.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="TrayIcon.h" />
+    <ClInclude Include="UiLang.h" />
+    <ClInclude Include="UiTheme.h" />
     <ClInclude Include="VolumeSlider.h" />
   </ItemGroup>
   <ItemGroup>
@@ -192,6 +197,16 @@
     <Image Include="Resource\speaker_lv1.ico" />
     <Image Include="Resource\speaker_lv2.ico" />
     <Image Include="Resource\speaker_lv3.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="Resource\en-US\Ui-en.txt" />
+    <Text Include="Resource\en-US\Usage-en.txt" />
+    <Text Include="Resource\ko-KR\Ui-ko.txt" />
+    <Text Include="Resource\ko-KR\Usage-ko.txt" />
+    <Text Include="Resource\License\libflac.txt" />
+    <Text Include="Resource\License\libogg.txt" />
+    <Text Include="Resource\License\libvorbis.txt" />
+    <Text Include="Resource\License\minimp3.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

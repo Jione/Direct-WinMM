@@ -30,6 +30,12 @@
     <ClCompile Include="CustomSlider.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="AboutDialog.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UiLang.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="RegistryManager.h">
@@ -45,6 +51,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="CustomSlider.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AboutDialog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UiTheme.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UiLang.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -74,5 +89,31 @@
     <Xml Include="Resource\WinmmVol_manifest.xml">
       <Filter>Resource Files</Filter>
     </Xml>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="Resource\License\libflac.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="Resource\License\libogg.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="Resource\License\libvorbis.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="Resource\License\minimp3.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="Resource\en-US\Ui-en.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="Resource\en-US\Usage-en.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="Resource\ko-KR\Ui-ko.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
+    <Text Include="Resource\ko-KR\Usage-ko.txt">
+      <Filter>Resource Files</Filter>
+    </Text>
   </ItemGroup>
 </Project>

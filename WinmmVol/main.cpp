@@ -9,6 +9,8 @@
 #include "RegistryManager.h"
 #include "TrayIcon.h"
 #include "VolumeSlider.h"
+#include "AboutDialog.h"
+#include "UiLang.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "Shell32.lib")
@@ -86,6 +88,9 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         case IDM_ENGINE_WASAPI:
             RegistryManager::SetEngineMode(2); // 2 = Force WASAPI
             break;
+        case IDM_ABOUT:
+            AboutDialog::Show(g_hInstance, hwnd);
+            break;
         case IDM_EXIT:
             DestroyWindow(hwnd); // Trigger WM_DESTROY and exit message loop
             break;
@@ -118,6 +123,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(lpCmdLine);
 
     g_hInstance = hInstance;
+    UILang::Init(hInstance);
 
     // Check for previous instance using Mutex
     HANDLE hMutex = CreateMutexW(NULL, TRUE, MUTEX_NAME);
@@ -132,7 +138,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     // Initialize Common Controls (for Trackbar)
     INITCOMMONCONTROLSEX icex;
     icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC = ICC_BAR_CLASSES; // Trackbar control
+    icex.dwICC = ICC_BAR_CLASSES | ICC_TAB_CLASSES | ICC_LINK_CLASS; // Trackbar control
     InitCommonControlsEx(&icex);
 
     // Initialize Registry Manager

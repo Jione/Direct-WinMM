@@ -16,6 +16,7 @@ IDR_TRAYMENU MENU DISCARDABLE
 BEGIN
 POPUP "&TrayMenu"
 BEGIN
+MENUITEM "&Information", IDM_ABOUT
 POPUP "&Advanced"
 BEGIN
 MENUITEM "Buffer mode: Auto", IDM_MODE_AUTO
@@ -30,6 +31,28 @@ MENUITEM SEPARATOR
 MENUITEM "E&xit", IDM_EXIT
 END
 END
+
+// About Dialog Template
+IDD_ABOUT DIALOGEX 0, 0, 560, 400
+STYLE DS_SETFONT | DS_MODALFRAME | WS_CAPTION | WS_SYSMENU
+CAPTION "About"
+BEGIN
+CONTROL "", 0, "Static", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 8, 8, 544, 384
+END
+
+// RCDATA for Usage and Licenses
+// Ensure these files exist in the specified paths relative to the .rc file
+IDR_USAGE_EN          RCDATA "Resource\\en-US\\Usage-en.txt"
+IDR_USAGE_KO          RCDATA "Resource\\ko-KR\\Usage-ko.txt"
+
+IDR_LICENSE_MINIMP3   RCDATA "Resource\\License\\minimp3.txt"
+IDR_LICENSE_LIBOGG    RCDATA "Resource\\License\\libogg.txt"
+IDR_LICENSE_LIBVORBIS RCDATA "Resource\\License\\libvorbis.txt"
+IDR_LICENSE_LIBFLAC   RCDATA "Resource\\License\\libflac.txt"
+
+// RCDATA for UI Lang
+IDR_UILANG_EN         RCDATA "Resource\en-US\Ui-en.txt"
+IDR_UILANG_KO         RCDATA "Resource\ko-KR\Ui-ko.txt"
 
 // Add manifest for Common Controls 6.0 (required for themed trackbar)
 1 RT_MANIFEST "Resource\WinmmVol_manifest.xml"
