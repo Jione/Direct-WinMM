@@ -49,6 +49,10 @@ namespace AudioEngine {
     //  - toMs==0xFFFFFFFF -> end of that track
     BOOL  GetRangeLengthMs(int fromTrack, DWORD fromMs, int toTrack, DWORD toMs, DWORD* outMs);
 
+    // Gets the current position relative to the current track
+    // TRUE if playing, FALSE if stopped or an error occurs.
+    BOOL  GetCurrentTrackPosition(int* outTrack, DWORD* outRelativeMs);
+
     // Set Buffer mode
     // @param mode 0 = Auto(Default), 1 = Force Streaming, 2 = Force FullBuffer
     void  SetBufferMode(int mode);

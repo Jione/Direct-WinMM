@@ -406,10 +406,34 @@ namespace Device {
                 dprintf("MCI_STATUS_POSITION|MCI_TRACK Track=%d Time=%d", tr, posMs);
             }
             else {
-                int curTr = AudioEngine::CurrentTrack();
-                DWORD curMs = AudioEngine::CurrentPositionMs();
-                p->dwReturn = PackTime(tf, curMs, curTr);
-                dprintf("MCI_STATUS_POSITION Track=%d Time=%d", curTr, curMs);
+                int curTr = 1;
+                DWORD relativeMs = 0;
+
+                // Use the new adapter function to get the *correct* relative track and time
+                if (!AudioEngine::GetCurrentTrackPosition(&curTr, &relativeMs)) {
+                    // This happens if not initialized or error, default to Track 1, 0ms
+                    curTr = 1;
+                    relativeMs = 0;
+                }
+
+                DWORD posMsToPack = 0;
+
+                if (tf == MCI_FORMAT_TMSF || tf == MCI_FORMAT_MSF) {
+                    posMsToPack = relativeMs;
+                }
+                else {
+                    DWORD absoluteMs = 0;
+                    for (int t = 1; t < curTr; ++t) {
+                        DWORD trackLen = 0;
+                        AudioEngine::GetTrackLengthMs(t, &trackLen);
+                        absoluteMs += trackLen;
+                    }
+                    absoluteMs += relativeMs;
+                    posMsToPack = absoluteMs;
+                }
+
+                p->dwReturn = PackTime(tf, posMsToPack, curTr);
+                dprintf("MCI_STATUS_POSITION (Track:%d RelTime:%d)", curTr, relativeMs);
             }
             break;
         }

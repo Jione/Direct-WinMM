@@ -106,7 +106,8 @@ namespace {
     static BOOL  gPathFormatDetected = FALSE;              // Flag to run detection only once
     static DWORD gRangeStartMs = 0;   // The absolute start Ms of the first segment
     static DWORD gRangeTotalMs = 0;   // The total duration of the current range
-    static DWORD gLatency = 0;        // Engine buffer latency (ms)
+    static int   gRangeToTrack = 1;   // Store the target TO position for end-of-play status
+    static DWORD gRangeToMs = 0;      // Store the target TO position for end-of-play status
 
     // --- General Utilities ---
 
@@ -517,11 +518,20 @@ namespace {
         // Status at start (start of the first segment)
         gEverPlayed = TRUE;
         gStatusTrack = gFullSegs[0].track;
+
+        // Correct gRangeToMs if it was "end of track"
+        if (gFullSegCount > 0) {
+            const FullSeg& last = gFullSegs[gFullSegCount - 1];
+            DWORD lastMs = FramesToMs(last.trackEndFrame, gFmt_Full);
+            if (lastMs < gRangeToMs) {
+                gRangeToMs = lastMs;
+            }
+        }
         return TRUE;
     }
 
     // ====== Playback Mode 2 (Streaming) ======
-        // Streaming Globals
+    // Streaming Globals
     static AD_Format     gFmt_Stream;
     static BOOL          gFmtInit_Stream = FALSE;
 
@@ -619,6 +629,15 @@ namespace {
 
         // Status before play (start of first segment)
         gStatusTrack = gSegs[0].track;
+
+        // Correct gRangeToMs if it was "end of track"
+        if (gSegCount > 0) {
+            const Segment& last = gSegs[gSegCount - 1];
+            DWORD lastMs = FramesToMs(last.endFrame, gFmt_Stream);
+            if (lastMs < gRangeToMs) {
+                gRangeToMs = lastMs;
+            }
+        }
         return TRUE;
     }
 
@@ -756,8 +775,10 @@ namespace AudioEngine {
         // Reset to MCICDA initial state
         gEverPlayed = FALSE;
         gStatusTrack = 1;
-
         gCurTrack = -1;
+        gRangeToTrack = 1;
+        gRangeToMs = 0;
+
         gInited = FALSE;
     }
 
@@ -833,6 +854,9 @@ namespace AudioEngine {
         gCurTrack = fromTrack;
         gNotify = notifyHwnd;
 
+        gRangeToTrack = toTrack;
+        gRangeToMs = toMs;
+
         // Runtime switching based on the flag
         if (UseFullBuffer()) {
             // --- Full Buffer Mode ---
@@ -876,6 +900,10 @@ namespace AudioEngine {
         // --- Clear Streaming State ---
         gDecCur.Close(); gDecCurTrack = -1;
         gSegCount = 0; gSegIndex = 0; gSegCursor = 0;
+
+        // --- Clear ToTrack State ---
+        gRangeToTrack = 1; gRangeToMs = 0;
+
         ZeroMemory(&gFmt_Stream, sizeof(gFmt_Stream)); gFmtInit_Stream = FALSE;
     }
 
@@ -925,28 +953,39 @@ namespace AudioEngine {
     DWORD CurrentPositionMs() {
         if (!gEverPlayed) return 0;
 
-        // Use HasReachedEnd, which is now accurate
-        if (HasReachedEnd()) {
-            // MCI rule: 0 at end
-            return 0;
+        // Get raw elapsed time from engine
+        DWORD elapsedMs = Engine_PosMs();
+
+        // Check for loop or range validity
+        if (gLoop || !gEverPlayed || gRangeTotalMs == 0) {
+            // Looping or range not set, just return raw elapsed time
+            if (UseFullBuffer() && gFmtInit_Full) {
+                UpdateStatusFromConcat(MsToFrame(elapsedMs, gFmt_Full));
+            }
+            return elapsedMs;
         }
 
-        // Calculate absolute position:
-        // Start of the first segment + total elapsed time from engine
-        DWORD elapsedMs = Engine_PosMs();
+        // --- Non-looping playback ---
+        if (elapsedMs >= gRangeTotalMs) {
+            // Playback has finished. Return the *total duration*
+            // of the range that was played.
+            if (UseFullBuffer() && gFmtInit_Full) {
+                UpdateStatusFromConcat(gFrames); // Update status to last frame
+            }
+            else if (gFmtInit_Stream && gSegCount > 0) {
+                // Ensure status track is set to the last segment
+                gStatusTrack = gSegs[gSegCount - 1].track;
+            }
+            return gRangeTotalMs;
+        }
+
+        // Still playing
         if (UseFullBuffer() && gFmtInit_Full) {
             UpdateStatusFromConcat(MsToFrame(elapsedMs, gFmt_Full));
         }
 
-        // Note: This simple addition may not account for gaps (missing tracks)
-        // in a multi-track range. A more complex fix would iterate segments.
-        // However, this correctly reports the position relative to the *start*
-        // of playback, fixing the latency bug.
-
-        // For simple playback, we can just return elapsedMs relative to the start
-        // of the *first track played*.
-        DWORD absoluteMs = gRangeStartMs + elapsedMs;
-        return absoluteMs;
+        // Return raw elapsed time
+        return elapsedMs;
     }
 
     UINT  CurrentSampleRate() { return Engine_SR(); }
@@ -958,6 +997,83 @@ namespace AudioEngine {
 
     BOOL GetTrackLengthMs(int track, DWORD* outMs) {
         return CountTrackLengthMs(track, outMs);
+    }
+
+    BOOL GetCurrentTrackPosition(int* outTrack, DWORD* outRelativeMs) {
+        if (!outTrack || !outRelativeMs) return FALSE;
+
+        // Get the current absolute elapsed time since playback started (0...gRangeTotalMs).
+        DWORD absoluteElapsedMs = CurrentPositionMs();
+
+        // Handle "Stopped" (manually) or "Not Started"
+        if (absoluteElapsedMs == 0 && !IsPlaying() && !IsPaused()) {
+            *outTrack = (gCurTrack > 0) ? gCurTrack : 1;
+            *outRelativeMs = 0;
+            return TRUE;
+        }
+
+        // Handle "Finished" state
+        if (absoluteElapsedMs >= gRangeTotalMs && !gLoop) {
+            *outTrack = gRangeToTrack;
+            *outRelativeMs = gRangeToMs;
+            return TRUE;
+        }
+
+        // --- Playback is active or has finished ---
+        if (UseFullBuffer()) {
+            // --- Full Buffer Mode ---
+            if (!gFmtInit_Full || gFullSegCount == 0) return FALSE;
+
+            DWORD elapsedFrames = MsToFrame(absoluteElapsedMs, gFmt_Full);
+            if (elapsedFrames > gFrames) elapsedFrames = gFrames; // Clamp to end
+
+            for (int i = 0; i < gFullSegCount; ++i) {
+                const FullSeg& s = gFullSegs[i];
+                DWORD segLenFrames = (s.trackEndFrame - s.trackStartFrame);
+
+                // Check if the position falls within this segment
+                // (Use <= for the last segment to catch the exact end time)
+                if (elapsedFrames <= s.concatStartFrame + segLenFrames) {
+                    *outTrack = s.track;
+                    DWORD framesIntoSegment = elapsedFrames - s.concatStartFrame;
+                    // Convert back to relative Ms *within the track*
+                    *outRelativeMs = FramesToMs(s.trackStartFrame + framesIntoSegment, gFmt_Full);
+                    return TRUE;
+                }
+            }
+            // If somehow past the end, report end of last segment
+            const FullSeg& last = gFullSegs[gFullSegCount - 1];
+            *outTrack = last.track;
+            *outRelativeMs = FramesToMs(last.trackEndFrame, gFmt_Full);
+            return TRUE;
+        }
+        else {
+            // --- Streaming Mode ---
+            if (!gFmtInit_Stream || gSegCount == 0) return FALSE;
+
+            DWORD elapsedMsAccumulator = 0;
+
+            for (int i = 0; i < gSegCount; ++i) {
+                const Segment& s = gSegs[i];
+                DWORD segDurationMs = FramesToMs(s.endFrame - s.startFrame, gFmt_Stream);
+
+                // Check if the elapsed time falls within this segment
+                // (Use <= for the last segment to catch the exact end time)
+                if (absoluteElapsedMs <= elapsedMsAccumulator + segDurationMs) {
+                    *outTrack = s.track;
+                    DWORD msIntoSegment = absoluteElapsedMs - elapsedMsAccumulator;
+                    // Convert to relative Ms *within the track*
+                    *outRelativeMs = FramesToMs(s.startFrame, gFmt_Stream) + msIntoSegment;
+                    return TRUE;
+                }
+                elapsedMsAccumulator += segDurationMs;
+            }
+            // If past the end, report end of last segment
+            const Segment& last = gSegs[gSegCount - 1];
+            *outTrack = last.track;
+            *outRelativeMs = FramesToMs(last.endFrame, gFmt_Stream);
+            return TRUE;
+        }
     }
 
     BOOL GetDiscLengthMs(DWORD* outMs) {
