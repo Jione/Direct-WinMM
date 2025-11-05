@@ -48,8 +48,10 @@ static void LocalizeTrayMenu(HMENU hRootPopup) {
     std::wstring s;
 
     // Root items: About / Exit
-    ModifyMenuW(hRootPopup, IDM_ABOUT, MF_BYCOMMAND | MF_STRING, IDM_ABOUT,
-        UILang::Get(L"MENU_ABOUT", s));
+    ModifyMenuW(hRootPopup, IDM_INFO_USAGE, MF_BYCOMMAND | MF_STRING, IDM_INFO_USAGE,
+        UILang::Get(L"MENU_USAGE", s));
+    ModifyMenuW(hRootPopup, IDM_INFO_LICENSE, MF_BYCOMMAND | MF_STRING, IDM_INFO_LICENSE,
+        UILang::Get(L"MENU_LICENSE", s));
     ModifyMenuW(hRootPopup, IDM_EXIT, MF_BYCOMMAND | MF_STRING, IDM_EXIT,
         UILang::Get(L"MENU_EXIT", s));
 

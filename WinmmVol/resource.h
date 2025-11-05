@@ -30,8 +30,9 @@
 #define IDM_ENGINE_DS           1007 // Engine: Force DirectSound
 #define IDM_ENGINE_WASAPI       1008 // Engine: Force WASAPI
 
-// About Dialog
-#define IDM_ABOUT               1009 // About menu item ID
+// Info Dialog
+#define IDM_INFO_USAGE          1101
+#define IDM_INFO_LICENSE        1102
 
 // Volume Slider Controls
 #define IDC_VOLUMESLIDER        2001 // Trackbar control ID

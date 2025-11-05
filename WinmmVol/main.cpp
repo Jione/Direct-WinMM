@@ -89,8 +89,11 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         case IDM_ENGINE_WASAPI:
             RegistryManager::SetEngineMode(2); // 2 = Force WASAPI
             break;
-        case IDM_ABOUT:
-            AboutDialog::Show(g_hInstance, hwnd);
+        case IDM_INFO_USAGE:
+            AboutDialog::ShowUsage(g_hInstance, hwnd);
+            break;
+        case IDM_INFO_LICENSE:
+            AboutDialog::ShowLicense(g_hInstance, hwnd);
             break;
         case IDM_EXIT:
             DestroyWindow(hwnd); // Trigger WM_DESTROY and exit message loop
