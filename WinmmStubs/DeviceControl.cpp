@@ -418,7 +418,7 @@ namespace Device {
 
                 DWORD posMsToPack = 0;
 
-                if (tf == MCI_FORMAT_TMSF || tf == MCI_FORMAT_MSF) {
+                if (tf == MCI_FORMAT_TMSF) {
                     posMsToPack = relativeMs;
                 }
                 else {
