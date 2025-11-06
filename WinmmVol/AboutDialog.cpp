@@ -62,7 +62,11 @@ namespace {
     static void BuildLicenseText(HINSTANCE hInst, std::wstring& out) {
         out.clear();
         static const UINT kParts[] = {
-            IDR_LICENSE_LIBOGG, IDR_LICENSE_LIBVORBIS, IDR_LICENSE_LIBFLAC, IDR_LICENSE_MINIMP3
+            IDR_LICENSE_LIBOGG,
+            IDR_LICENSE_LIBVORBIS,
+            IDR_LICENSE_LIBFLAC,
+            IDR_LICENSE_LIBSAMP,
+            IDR_LICENSE_MINIMP3
         };
         std::wstring tmp;
         for (UINT id : kParts) {

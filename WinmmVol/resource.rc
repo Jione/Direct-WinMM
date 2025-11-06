@@ -57,6 +57,7 @@ IDR_LICENSE_MINIMP3   RCDATA "Resource\\License\\minimp3.txt"
 IDR_LICENSE_LIBOGG    RCDATA "Resource\\License\\libogg.txt"
 IDR_LICENSE_LIBVORBIS RCDATA "Resource\\License\\libvorbis.txt"
 IDR_LICENSE_LIBFLAC   RCDATA "Resource\\License\\libflac.txt"
+IDR_LICENSE_LIBSAMP   RCDATA "Resource\\License\\libsamplerate.txt"
 
 // RCDATA for UI Lang
 IDR_UILANG_EN         RCDATA "Resource\en-US\Ui-en.txt"

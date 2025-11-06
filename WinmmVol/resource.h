@@ -52,6 +52,7 @@
 #define IDR_LICENSE_LIBOGG      3202 // License\libogg.txt
 #define IDR_LICENSE_LIBVORBIS   3203 // License\libvorbis.txt
 #define IDR_LICENSE_LIBFLAC     3204 // License\libflac.txt
+#define IDR_LICENSE_LIBSAMP     3205 // License\libsamplerate.txt
 
 // UILang packs (UTF-16 key=value)
 #define IDR_UILANG_EN           9001 // en-US\Ui-en.txt
