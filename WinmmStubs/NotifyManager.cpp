@@ -5,6 +5,7 @@
 // External dependency: Audio Engine status
 namespace AudioEngine {
     BOOL IsPlaying();
+    BOOL HasReachedEnd();
 }
 
 namespace {
@@ -110,9 +111,17 @@ namespace {
             if (gNotifyState.pollState == POLL_STATE_WAITING_100MS) {
                 // This is the first check after 100ms
                 if (!AudioEngine::IsPlaying()) {
-                    // Playback failed to start
-                    doPost = TRUE;
-                    postCode = MCI_NOTIFY_FAILURE;
+                    // Playback is not active. Check if it finished or failed.
+                    if (AudioEngine::HasReachedEnd()) {
+                        // It's a short sound that finished *before* 100ms.
+                        doPost = TRUE;
+                        postCode = MCI_NOTIFY_SUCCESSFUL;
+                    }
+                    else {
+                        // It never started (or stopped abnormally).
+                        doPost = TRUE;
+                        postCode = MCI_NOTIFY_FAILURE;
+                    }
                     ClearNotifyState();
                 }
                 else if (!PostThreadMessageW(gNotifyState.openingThreadId, WM_USER, NULL, NULL)) {

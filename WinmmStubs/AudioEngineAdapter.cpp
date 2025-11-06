@@ -116,17 +116,15 @@ namespace {
 
     static DWORD MsToFrame(DWORD ms, const AD_Format& f) {
         if (ms == 0xFFFFFFFF) return 0xFFFFFFFF;
-        return (DWORD)((unsigned __int64)ms * (unsigned __int64)f.sampleRate / 1000ULL);
+        if (f.sampleRate == 0) return 0;
+        // Use 64-bit unsigned integers and add 500 for rounding (0.5ms)
+        return (DWORD)(((unsigned __int64)ms * (unsigned __int64)f.sampleRate + 500ULL) / 1000ULL);
     }
     static DWORD FramesToMs(DWORD frames, const AD_Format& f) {
         if (f.sampleRate == 0) return 0;
-        return (DWORD)((unsigned __int64)frames * 1000ULL / (unsigned __int64)f.sampleRate);
-    }
-    static BOOL HasReachedEnd() {
-        if (gLoop || !gEverPlayed || gRangeTotalMs == 0) return FALSE;
-
-        DWORD elapsedMs = Engine_PosMs();
-        return (elapsedMs >= gRangeTotalMs);
+        // Use 64-bit unsigned integers and add half the sample rate for rounding
+        unsigned __int64 halfRate = (unsigned __int64)f.sampleRate / 2ULL;
+        return (DWORD)(((unsigned __int64)frames * 1000ULL + halfRate) / (unsigned __int64)f.sampleRate);
     }
 
     // --- Track/Disc Logic (Helpers for Public API) ---
@@ -935,18 +933,23 @@ namespace AudioEngine {
         gMuteRight = muteRight;
         ApplyVolumeSettings();
     }
+    BOOL HasReachedEnd() {
+        if (gLoop || !gEverPlayed || gRangeTotalMs == 0) return FALSE;
 
-    BOOL  IsPlaying() {
+        DWORD elapsedMs = Engine_PosMs();
+        return (elapsedMs >= gRangeTotalMs);
+    }
+    BOOL IsPlaying() {
         return !HasReachedEnd() && Engine_IsPlaying();
     }
-    BOOL  IsPaused() { return Engine_IsPaused(); }
+    BOOL IsPaused() { return Engine_IsPaused(); }
 
-    int   CurrentTrack() {
+    int  CurrentTrack() {
         // MCICDA rule: 1 before ever played
         if (!gEverPlayed) return 1;
         return gStatusTrack;
     }
-    BOOL  SeekTrack(int track) {
+    BOOL SeekTrack(int track) {
         return (1 <= track <= 99) ? gStatusTrack = track : FALSE;
     }
 

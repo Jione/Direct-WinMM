@@ -28,6 +28,7 @@ namespace AudioEngine {
     void  SetChannelMute(BOOL muteLeft, BOOL muteRight);
 
     // Status
+    BOOL  HasReachedEnd();
     BOOL  IsPlaying();
     BOOL  IsPaused();
     int   CurrentTrack();        // MCICDA compatibility rule
