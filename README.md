@@ -87,10 +87,11 @@ Use the **system/device volume** (or Direct-WinMM's own volume control) to adjus
 
 ## Dependent Libraries
 
+* [minimp3](https://github.com/lieff/minimp3.git)
 * [libogg](https://github.com/gcp/libogg.git)
 * [libvorbis](https://github.com/xiph/vorbis.git)
 * [libflac](https://github.com/xiph/flac.git)
-* [minimp3](https://github.com/lieff/minimp3.git)
+* [libsamplerate](https://github.com/libsndfile/libsamplerate.git)
 
 ---
 

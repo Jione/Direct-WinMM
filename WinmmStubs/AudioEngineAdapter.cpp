@@ -1,6 +1,7 @@
 #include "AudioEngineAdapter.h"
 #include "AudioEngineDirectSound.h"
 #include "AudioEngineWASAPI.h"
+#include <samplerate.h>
 #include <string>
 #include <vector>
 #include <map>
@@ -365,8 +366,7 @@ namespace {
     static FullSeg gFullSegs[256];
     static int     gFullSegCount = 0;
 
-    static BOOL AppendTrackSlice(int track, DWORD fromMs, DWORD toMs, AD_Format& ioFmt, BOOL& fmtInit, DWORD& totalFramesOut)
-    {
+    static BOOL AppendTrackSlice(int track, DWORD fromMs, DWORD toMs, AD_Format& ioFmt, BOOL& fmtInit, DWORD& totalFramesOut) {
         wchar_t path[MAX_PATH];
         if (!BuildTrackPath(track, path, MAX_PATH)) return FALSE;
 
@@ -376,7 +376,7 @@ namespace {
         AD_Format f; if (!dec.GetFormat(&f)) { dec.Close(); return FALSE; }
         if (f.sampleRate == 0 || (f.channels != 1 && f.channels != 2)) { dec.Close(); return FALSE; }
         if (!fmtInit) { ioFmt = f; fmtInit = TRUE; }
-        if (f.sampleRate != ioFmt.sampleRate || f.channels != ioFmt.channels) { dec.Close(); return FALSE; }
+        if (((UseWASAPI() || !UseFullBuffer()) && f.sampleRate != ioFmt.sampleRate) || f.channels != ioFmt.channels) { dec.Close(); return FALSE; }
 
         const DWORD ch = f.channels;
         const DWORD totalFrames = dec.TotalFrames(); if (!totalFrames) { dec.Close(); return FALSE; }
@@ -406,23 +406,89 @@ namespace {
 
         // Decode and append to the concatenated buffer
         if (!dec.SeekFrames(fromF)) { dec.Close(); return FALSE; }
-        const DWORD need = toF - fromF;
+        const DWORD needFrames = toF - fromF;
+        if (needFrames == 0) { dec.Close(); return FALSE; }
 
-        size_t prevSize = gPcm.size();
-        gPcm.resize(prevSize + (size_t)need * ch);
+        // --- Resampling Logic ---
+        // Read all needed frames into a temporary buffer (native format)
+        std::vector<short> tempPcm;
+        // Allocates memory. May throw std::bad_alloc if OOM.
+        tempPcm.resize(needFrames * ch);
 
         DWORD done = 0;
-        while (done < need) {
-            DWORD chunk = MinDW(need - done, 32 * 1024);
-            DWORD got = dec.ReadFrames(&gPcm[prevSize + (size_t)done * ch], chunk);
-            if (!got) break;
+        while (done < needFrames) {
+            DWORD chunk = MinDW(needFrames - done, 32 * 1024);
+            DWORD got = dec.ReadFrames(&tempPcm[done * ch], chunk);
+            if (!got) break; // EOF or error
             done += got;
         }
-        gPcm.resize(prevSize + (size_t)done * ch); // Truncate if read failed
+        tempPcm.resize(done * ch); // Truncate to what was actually read
         dec.Close();
 
-        totalFramesOut += done;
-        return (done > 0);
+        if (done == 0) return FALSE; // Nothing read
+
+        DWORD sourceFrames = done;
+        DWORD sourceRate = f.sampleRate;
+        DWORD targetRate = ioFmt.sampleRate; // This is gFmt_Full.sampleRate (target)
+
+        // Check if resampling is actually needed
+        if (sourceRate == targetRate) {
+            // No resampling needed, just append
+            size_t prevSize = gPcm.size();
+            // Allocates memory. May throw std::bad_alloc if OOM.
+            gPcm.resize(prevSize + tempPcm.size());
+            memcpy(&gPcm[prevSize], tempPcm.data(), tempPcm.size() * sizeof(short));
+
+            totalFramesOut += sourceFrames;
+        }
+        else {
+            // Resampling is required (e.g., 44100 -> 48000)
+            double ratio = (double)targetRate / (double)sourceRate;
+            long inputSamples = (long)tempPcm.size();
+            // Estimate output size (add a small buffer just in case)
+            long outputSamplesEstimate = (long)(inputSamples * ratio) + (ch * 16);
+
+            std::vector<float> floatInput;
+            std::vector<float> floatOutput;
+
+            // Allocates memory. May throw std::bad_alloc if OOM.
+            floatInput.resize(inputSamples);
+            floatOutput.resize(outputSamplesEstimate);
+
+            // Convert short input -> float input
+            src_short_to_float_array(tempPcm.data(), floatInput.data(), inputSamples);
+
+            // Prepare data for src_simple
+            SRC_DATA srcData;
+            srcData.data_in = floatInput.data();
+            srcData.data_out = floatOutput.data();
+            srcData.input_frames = (long)sourceFrames;
+            srcData.output_frames = (long)(outputSamplesEstimate / ch);
+            srcData.src_ratio = ratio;
+            srcData.end_of_input = 0; // Not end of stream, just this block
+
+            // Use SRC_SINC_FASTEST for speed.
+            int error = src_simple(&srcData, SRC_SINC_FASTEST, ch);
+
+            if (error != 0) {
+                // Resampling failed
+                return FALSE;
+            }
+
+            long framesGenerated = srcData.output_frames_gen;
+            long samplesGenerated = framesGenerated * ch;
+            if (samplesGenerated == 0) return FALSE; // Nothing generated
+
+            // Convert float output -> short output and append
+            size_t prevSize = gPcm.size();
+            // Allocates memory. May throw std::bad_alloc if OOM.
+            gPcm.resize(prevSize + samplesGenerated);
+            src_float_to_short_array(floatOutput.data(), &gPcm[prevSize], samplesGenerated);
+
+            totalFramesOut += framesGenerated;
+        }
+
+        return TRUE; // Success
     }
 
     // Update (track) from concatenated buffer position (in frames)
@@ -472,12 +538,23 @@ namespace {
                 continue; // Empty file -> skip
             }
 
+            DWORD targetSampleRate = f.sampleRate;
+
+            // Resample if DS is active (!UseWASAPI) AND the source rate is not 48k
+            if (!UseWASAPI() && f.sampleRate != 48000) {
+                targetSampleRate = 48000;
+            }
+
             if (!gFmtInit_Full) {
-                gFmt_Full = f; gFmtInit_Full = TRUE;
+                gFmt_Full = f;
+                gFmt_Full.sampleRate = targetSampleRate; // Set the *target* sample rate
+                gFmtInit_Full = TRUE;
             }
             else {
-                if (f.sampleRate != gFmt_Full.sampleRate || f.channels != gFmt_Full.channels) {
-                    // Format mismatch -> fail
+                // Check if *channels* match. 
+                // Sample rate differences will be handled by AppendTrackSlice.
+                if (f.channels != gFmt_Full.channels) {
+                    // Format mismatch (channels) -> fail
                     return FALSE;
                 }
             }

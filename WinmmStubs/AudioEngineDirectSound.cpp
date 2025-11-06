@@ -359,14 +359,20 @@ BOOL DSoundAudioEngine::PlayStaticBuffer(UINT sampleRate, UINT channels, short* 
 
     // --- Lock, Copy data, Unlock ---
     VOID* p1 = NULL; DWORD b1 = 0;
-    hr = secondary->Lock(0, bufferBytes, &p1, &b1, NULL, NULL, 0);
-    if (SUCCEEDED(hr) && p1 && b1 > 0)
-    {
-        memcpy(p1, pcmData, b1);
-        secondary->Unlock(p1, b1, NULL, NULL);
+    VOID* p2 = NULL; DWORD b2 = 0;
+
+    hr = secondary->Lock(0, bufferBytes, &p1, &b1, &p2, &b2, 0);
+    if (SUCCEEDED(hr)) {
+        if (p1 && b1 > 0) {
+            memcpy(p1, pcmData, b1);
+        }
+        if (p2 && b2 > 0) {
+            memcpy(p2, (BYTE*)pcmData + b1, b2);
+        }
+
+        secondary->Unlock(p1, b1, p2, b2);
     }
-    else
-    {
+    else {
         DestroySecondary();
         return FALSE;
     }

@@ -2,6 +2,4 @@
 * text=auto
 external/** linguist-vendored
 include/** linguist-vendored
-libFLAC/** linguist-vendored
-libogg/** linguist-vendored
-libvorbis/** linguist-vendored
+lib*/** linguist-vendored

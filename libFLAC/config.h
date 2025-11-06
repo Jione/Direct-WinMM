@@ -38,7 +38,9 @@
 /* #undef FLAC__SYS_LINUX */
 
 /* define to enable use of AVX instructions */
-#define WITH_AVX
+#ifdef _WIN64
+  #define WITH_AVX
+#endif
 #ifdef WITH_AVX
   #define FLAC__USE_AVX
 #endif

@@ -6,6 +6,7 @@ static inline WORD  ReadLE16(const BYTE* p) { return (WORD)(p[0] | (p[1] << 8));
 static inline DWORD ReadLE32(const BYTE* p) { return (DWORD)(p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24)); }
 
 #define MINIMP3_ONLY_MP3
+#define MINIMP3_HAVE_SSE2
 #define MINIMP3_IMPLEMENTATION
 #include <minimp3_ex.h>
 

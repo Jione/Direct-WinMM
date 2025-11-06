@@ -238,6 +238,9 @@
       <LinkLibraryDependencies>true</LinkLibraryDependencies>
       <Private>true</Private>
     </ProjectReference>
+    <ProjectReference Include="..\libsamplerate\samplerate.vcxproj">
+      <Project>{32e7f0cd-9610-46d2-a55b-d057e0d2fb9d}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\libvorbis\vorbisfile.vcxproj">
       <Project>{cebde98b-a6aa-46e6-bc79-faaf823db9ec}</Project>
       <Private>true</Private>

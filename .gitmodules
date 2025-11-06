@@ -10,3 +10,6 @@
 [submodule "external/libflac"]
 	path = external/libflac
 	url = https://github.com/xiph/flac.git
+[submodule "external/libsamplerate"]
+	path = external/libsamplerate
+	url = https://github.com/libsndfile/libsamplerate.git
