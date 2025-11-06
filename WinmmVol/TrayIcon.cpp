@@ -4,98 +4,126 @@
 #include "UiLang.h"
 #include <shellapi.h> // For Shell_NotifyIcon
 
-// Find the submenu item index that hosts a given submenu HMENU
-static int FindSubmenuIndex(HMENU hRootPopup, HMENU hSubmenu) {
-    if (!hRootPopup || !hSubmenu) return -1;
-    const int count = GetMenuItemCount(hRootPopup);
-    for (int i = 0; i < count; ++i) {
-        if (GetSubMenu(hRootPopup, i) == hSubmenu) return i;
-    }
-    return -1;
-}
-
-// Robustly set submenu caption without deleting the item
-static void SetSubmenuCaptionSafe(HMENU hRootPopup, HMENU hSubmenu, const wchar_t* newText) {
-    if (!hRootPopup || !hSubmenu || !newText) return;
-
-    int pos = FindSubmenuIndex(hRootPopup, hSubmenu);
-    if (pos < 0) return;
-
-    MENUITEMINFOW mii = {};
-    mii.cbSize = sizeof(mii);
-    // Keep submenu handle and type, just set caption as string
-    mii.fMask = MIIM_SUBMENU | MIIM_FTYPE | MIIM_STRING;
-    mii.fType = MFT_STRING;
-    mii.hSubMenu = hSubmenu;
-    mii.dwTypeData = const_cast<LPWSTR>(newText);
-    mii.cch = (UINT)lstrlenW(newText);
-    SetMenuItemInfoW(hRootPopup, pos, TRUE, &mii);
-}
-
-static HMENU FindAdvancedSubmenu(HMENU hRootPopup) {
-    if (!hRootPopup) return NULL;
-    const int count = GetMenuItemCount(hRootPopup);
-    for (int i = 0; i < count; ++i) {
-        HMENU h = GetSubMenu(hRootPopup, i);
-        if (h) return h;
-    }
-    return NULL;
-}
-
-static void LocalizeTrayMenu(HMENU hRootPopup) {
-    if (!hRootPopup) return;
-
-    std::wstring s;
-
-    // Root items: About / Exit
-    ModifyMenuW(hRootPopup, IDM_INFO_USAGE, MF_BYCOMMAND | MF_STRING, IDM_INFO_USAGE,
-        UILang::Get(L"MENU_USAGE", s));
-    ModifyMenuW(hRootPopup, IDM_INFO_LICENSE, MF_BYCOMMAND | MF_STRING, IDM_INFO_LICENSE,
-        UILang::Get(L"MENU_LICENSE", s));
-    ModifyMenuW(hRootPopup, IDM_EXIT, MF_BYCOMMAND | MF_STRING, IDM_EXIT,
-        UILang::Get(L"MENU_EXIT", s));
-
-    // Localize submenu items
-    ModifyMenuW(hRootPopup, IDM_MODE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_MODE_AUTO,
-        UILang::Get(L"MENU_ADVANCED_BUFFER_AUTO", s));
-    ModifyMenuW(hRootPopup, IDM_MODE_STREAMING, MF_BYCOMMAND | MF_STRING, IDM_MODE_STREAMING,
-        UILang::Get(L"MENU_ADVANCED_STREAMING", s));
-    ModifyMenuW(hRootPopup, IDM_MODE_FULLBUFFER, MF_BYCOMMAND | MF_STRING, IDM_MODE_FULLBUFFER,
-        UILang::Get(L"MENU_ADVANCED_FULLBUFFER", s));
-
-    ModifyMenuW(hRootPopup, IDM_ENGINE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_AUTO,
-        UILang::Get(L"MENU_ADVANCED_ENGINE_AUTO", s));
-    ModifyMenuW(hRootPopup, IDM_ENGINE_DS, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_DS,
-        UILang::Get(L"MENU_ADVANCED_DS", s));
-    ModifyMenuW(hRootPopup, IDM_ENGINE_WASAPI, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_WASAPI,
-        UILang::Get(L"MENU_ADVANCED_WASAPI", s));
-
-    // Localize Advanced submenu
-    HMENU hAdvanced = FindAdvancedSubmenu(hRootPopup);
-    if (hAdvanced) {
-        SetSubmenuCaptionSafe(hRootPopup, hAdvanced, UILang::Get(L"MENU_ADVANCED", s));
-    }
-}
-
-// Load icon helper
-static HICON LoadSmallIcon(HINSTANCE hInst, UINT id) {
-    int cx = GetSystemMetrics(SM_CXSMICON);
-    int cy = GetSystemMetrics(SM_CYSMICON);
-    HICON h = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(id), IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR);
-    if (!h) h = LoadIconW(hInst, MAKEINTRESOURCEW(id));
-    return h;
-}
-
-
 namespace {
+
     const UINT TRAY_ICON_ID = 1; // Unique ID for our icon
-    NOTIFYICONDATAW nid = { sizeof(nid) };
+    static NOTIFYICONDATAW nid = { sizeof(nid) };
 
     // Cached icons for volume states
-    HICON s_iconMute = NULL;
-    HICON s_iconLv1  = NULL;
-    HICON s_iconLv2  = NULL;
-    HICON s_iconLv3  = NULL;
+    static HICON s_iconMute = NULL;
+    static HICON s_iconLv1  = NULL;
+    static HICON s_iconLv2  = NULL;
+    static HICON s_iconLv3  = NULL;
+
+    static BOOL gInited = FALSE;
+    static BOOL gVistaOrLater = FALSE;
+
+    typedef LONG(WINAPI* RtlGetVersion_t)(PRTL_OSVERSIONINFOW);
+    static BOOL IsVistaOrLater() {
+        if (gInited) return gVistaOrLater;
+        static int cached = -1;
+        if (cached != -1) return cached ? TRUE : FALSE;
+        HMODULE hNt = GetModuleHandleW(L"ntdll.dll");
+        if (hNt) {
+            RtlGetVersion_t p = (RtlGetVersion_t)GetProcAddress(hNt, "RtlGetVersion");
+            if (p) {
+                RTL_OSVERSIONINFOW vi = { sizeof(vi) };
+                if (p(&vi) == 0) {
+                    cached = (vi.dwMajorVersion >= 6) ? 1 : 0;
+                    gInited = TRUE;
+                    gVistaOrLater = cached ? TRUE : FALSE;
+                    return gVistaOrLater;
+                }
+            }
+        }
+        OSVERSIONINFOEXW os = { sizeof(os) }; GetVersionExW((OSVERSIONINFOW*)&os);
+        cached = (os.dwMajorVersion >= 6) ? 1 : 0;
+        gInited = TRUE;
+        gVistaOrLater = cached ? TRUE : FALSE;
+        return gVistaOrLater;
+    }
+
+    // Find the submenu item index that hosts a given submenu HMENU
+    static int FindSubmenuIndex(HMENU hRootPopup, HMENU hSubmenu) {
+        if (!hRootPopup || !hSubmenu) return -1;
+        const int count = GetMenuItemCount(hRootPopup);
+        for (int i = 0; i < count; ++i) {
+            if (GetSubMenu(hRootPopup, i) == hSubmenu) return i;
+        }
+        return -1;
+    }
+
+    // Robustly set submenu caption without deleting the item
+    static void SetSubmenuCaptionSafe(HMENU hRootPopup, HMENU hSubmenu, const wchar_t* newText) {
+        if (!hRootPopup || !hSubmenu || !newText) return;
+
+        int pos = FindSubmenuIndex(hRootPopup, hSubmenu);
+        if (pos < 0) return;
+
+        MENUITEMINFOW mii = {};
+        mii.cbSize = sizeof(mii);
+        // Keep submenu handle and type, just set caption as string
+        mii.fMask = MIIM_SUBMENU | MIIM_FTYPE | MIIM_STRING;
+        mii.fType = MFT_STRING;
+        mii.hSubMenu = hSubmenu;
+        mii.dwTypeData = const_cast<LPWSTR>(newText);
+        mii.cch = (UINT)lstrlenW(newText);
+        SetMenuItemInfoW(hRootPopup, pos, TRUE, &mii);
+    }
+
+    static HMENU FindAdvancedSubmenu(HMENU hRootPopup) {
+        if (!hRootPopup) return NULL;
+        const int count = GetMenuItemCount(hRootPopup);
+        for (int i = 0; i < count; ++i) {
+            HMENU h = GetSubMenu(hRootPopup, i);
+            if (h) return h;
+        }
+        return NULL;
+    }
+
+    static void LocalizeTrayMenu(HMENU hRootPopup) {
+        if (!hRootPopup) return;
+
+        std::wstring s;
+
+        // Root items: About / Exit
+        ModifyMenuW(hRootPopup, IDM_INFO_USAGE, MF_BYCOMMAND | MF_STRING, IDM_INFO_USAGE,
+            UILang::Get(L"MENU_USAGE", s));
+        ModifyMenuW(hRootPopup, IDM_INFO_LICENSE, MF_BYCOMMAND | MF_STRING, IDM_INFO_LICENSE,
+            UILang::Get(L"MENU_LICENSE", s));
+        ModifyMenuW(hRootPopup, IDM_EXIT, MF_BYCOMMAND | MF_STRING, IDM_EXIT,
+            UILang::Get(L"MENU_EXIT", s));
+
+        // Localize submenu items
+        ModifyMenuW(hRootPopup, IDM_MODE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_MODE_AUTO,
+            UILang::Get(L"MENU_ADVANCED_BUFFER_AUTO", s));
+        ModifyMenuW(hRootPopup, IDM_MODE_STREAMING, MF_BYCOMMAND | MF_STRING, IDM_MODE_STREAMING,
+            UILang::Get(L"MENU_ADVANCED_STREAMING", s));
+        ModifyMenuW(hRootPopup, IDM_MODE_FULLBUFFER, MF_BYCOMMAND | MF_STRING, IDM_MODE_FULLBUFFER,
+            UILang::Get(L"MENU_ADVANCED_FULLBUFFER", s));
+
+        ModifyMenuW(hRootPopup, IDM_ENGINE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_AUTO,
+            UILang::Get(L"MENU_ADVANCED_ENGINE_AUTO", s));
+        ModifyMenuW(hRootPopup, IDM_ENGINE_DS, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_DS,
+            UILang::Get(L"MENU_ADVANCED_DS", s));
+        ModifyMenuW(hRootPopup, IDM_ENGINE_WASAPI, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_WASAPI,
+            UILang::Get(L"MENU_ADVANCED_WASAPI", s));
+
+        // Localize Advanced submenu
+        HMENU hAdvanced = FindAdvancedSubmenu(hRootPopup);
+        if (hAdvanced) {
+            SetSubmenuCaptionSafe(hRootPopup, hAdvanced, UILang::Get(L"MENU_ADVANCED", s));
+        }
+    }
+
+    // Load icon helper
+    static HICON LoadSmallIcon(HINSTANCE hInst, UINT id) {
+        int cx = GetSystemMetrics(SM_CXSMICON);
+        int cy = GetSystemMetrics(SM_CYSMICON);
+        HICON h = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(id), IMAGE_ICON, cx, cy, LR_DEFAULTCOLOR);
+        if (!h) h = LoadIconW(hInst, MAKEINTRESOURCEW(id));
+        return h;
+    }
 
     // Choose icon by state
     static HICON ChooseIcon(BOOL isMute, int percent) {
@@ -103,6 +131,21 @@ namespace {
         if (percent <= 32)          return s_iconLv1 ? s_iconLv1 : nid.hIcon;
         if (percent <= 65)          return s_iconLv2 ? s_iconLv2 : nid.hIcon;
         return s_iconLv3 ? s_iconLv3 : nid.hIcon;
+    }
+
+    static void LockEngineMenuOnXP(HMENU hAdvanced) {
+        if (!hAdvanced) return;
+        if (IsVistaOrLater()) return; // Vista+ : do nothing
+
+        // Disable DS and WASAPI; leave only AUTO available
+        EnableMenuItem(hAdvanced, IDM_ENGINE_DS, MF_BYCOMMAND | MF_GRAYED);
+        EnableMenuItem(hAdvanced, IDM_ENGINE_WASAPI, MF_BYCOMMAND | MF_GRAYED);
+
+        // Force radio check to AUTO (safest even if already set)
+        CheckMenuRadioItem(hAdvanced,
+            IDM_ENGINE_AUTO, IDM_ENGINE_WASAPI, // group range
+            IDM_ENGINE_AUTO,
+            MF_BYCOMMAND);
     }
 }
 
@@ -120,7 +163,6 @@ namespace TrayIcon {
         else {
             nid.szTip[0] = L'\0';
         }
-
 
         // Add icon
         BOOL ok = Shell_NotifyIconW(NIM_ADD, &nid);
@@ -204,6 +246,8 @@ namespace TrayIcon {
             IDM_ENGINE_WASAPI,              // Last item in group
             itemToCheck,                    // Item to check
             MF_BYCOMMAND);                  // Find items by ID
+
+        LockEngineMenuOnXP(hAdvancedMenu);
 
         POINT pt;
         GetCursorPos(&pt);
