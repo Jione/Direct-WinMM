@@ -51,12 +51,17 @@ namespace {
     // Internal helper to determine if FullBuffer mode should be used, respecting the override and OS defaults.
     inline BOOL UseFullBuffer() {
         if (gBufferOverride == 1) return FALSE; // Force Streaming
-        if (gBufferOverride == 2) return TRUE;  // Force Full Buffer
+        if (2 <= gBufferOverride) return TRUE;  // Force Full Buffer
 
         // Auto mode (0):
         // Use FullBuffer for DirectSound (XP default)
         // Use Streaming for WASAPI (Vista+ default)
         return !UseWASAPI();
+    }
+
+    // Internal helper to determine if Resampling mode should be used, respecting FALSE.
+    inline BOOL UseResample() {
+        return (gBufferOverride == 3) ? TRUE : FALSE;
     }
 
     // Engine Instances
@@ -376,7 +381,7 @@ namespace {
         AD_Format f; if (!dec.GetFormat(&f)) { dec.Close(); return FALSE; }
         if (f.sampleRate == 0 || (f.channels != 1 && f.channels != 2)) { dec.Close(); return FALSE; }
         if (!fmtInit) { ioFmt = f; fmtInit = TRUE; }
-        if (((UseWASAPI() || !UseFullBuffer()) && f.sampleRate != ioFmt.sampleRate) || f.channels != ioFmt.channels) { dec.Close(); return FALSE; }
+        if ((!UseResample() && f.sampleRate != ioFmt.sampleRate) || f.channels != ioFmt.channels) { dec.Close(); return FALSE; }
 
         const DWORD ch = f.channels;
         const DWORD totalFrames = dec.TotalFrames(); if (!totalFrames) { dec.Close(); return FALSE; }
@@ -540,8 +545,8 @@ namespace {
 
             DWORD targetSampleRate = f.sampleRate;
 
-            // Resample if DS is active (!UseWASAPI) AND the source rate is not 48k
-            if (!UseWASAPI() && f.sampleRate != 48000) {
+            // Resample if UseResample is active AND the source rate is not 48k
+            if (UseResample() && f.sampleRate != 48000) {
                 targetSampleRate = 48000;
             }
 
@@ -864,9 +869,9 @@ namespace AudioEngine {
         }
     }
 
-    // Set the buffering strategy (0=Auto, 1=Streaming, 2=Full)
+    // Set the buffering strategy (0=Auto, 1=Streaming, 2=Full, 3=Full Resampling)
     void SetBufferMode(int mode) {
-        if (mode < 0 || mode > 2) mode = 0;
+        if (mode < 0 || mode > 3) mode = 0;
         if (mode == gBufferOverride) return;
 
         // Check if the *effective* mode (what's currently running) will change
@@ -874,7 +879,7 @@ namespace AudioEngine {
         BOOL newMode = ((mode == 0) ? !UseWASAPI() : (mode != 1)) ? TRUE : FALSE;
 
         // If the effective mode changed AND the engine was already initialized, shut it down.
-        if (gInited && (prevMode != newMode)) {
+        if (mode == 3 || gBufferOverride == 3 || (gInited && (prevMode != newMode))) {
             Shutdown(); // This stops playback and sets gInited = FALSE
         }
         

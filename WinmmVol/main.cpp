@@ -79,6 +79,9 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         case IDM_MODE_FULLBUFFER:
             RegistryManager::SetBufferMode(2); // 2 = Full Buffer
             break;
+        case IDM_MODE_RESAMPLE:
+            RegistryManager::SetBufferMode(3); // 3 = Full Buffer + Resampling
+            break;
         // Handle Engine Mode selection
         case IDM_ENGINE_AUTO:
             RegistryManager::SetEngineMode(0); // 0 = Auto

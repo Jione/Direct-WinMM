@@ -24,11 +24,12 @@
 #define IDM_MODE_AUTO           1003 // Buffer: Auto-detect
 #define IDM_MODE_STREAMING      1004 // Buffer: Streaming
 #define IDM_MODE_FULLBUFFER     1005 // Buffer: Full Buffer
+#define IDM_MODE_RESAMPLE       1006 // Buffer: Full Buffer + Resampling
 
 // Engine Mode Menu IDs
-#define IDM_ENGINE_AUTO         1006 // Engine: Auto-detect
-#define IDM_ENGINE_DS           1007 // Engine: Force DirectSound
-#define IDM_ENGINE_WASAPI       1008 // Engine: Force WASAPI
+#define IDM_ENGINE_AUTO         1007 // Engine: Auto-detect
+#define IDM_ENGINE_DS           1008 // Engine: Force DirectSound
+#define IDM_ENGINE_WASAPI       1009 // Engine: Force WASAPI
 
 // Info Dialog
 #define IDM_INFO_USAGE          1101

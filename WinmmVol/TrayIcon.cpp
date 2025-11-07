@@ -101,6 +101,8 @@ namespace {
             UILang::Get(L"MENU_ADVANCED_STREAMING", s));
         ModifyMenuW(hRootPopup, IDM_MODE_FULLBUFFER, MF_BYCOMMAND | MF_STRING, IDM_MODE_FULLBUFFER,
             UILang::Get(L"MENU_ADVANCED_FULLBUFFER", s));
+        ModifyMenuW(hRootPopup, IDM_MODE_RESAMPLE, MF_BYCOMMAND | MF_STRING, IDM_MODE_RESAMPLE,
+            UILang::Get(L"MENU_ADVANCED_RESAMPLE", s));
 
         ModifyMenuW(hRootPopup, IDM_ENGINE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_AUTO,
             UILang::Get(L"MENU_ADVANCED_ENGINE_AUTO", s));
@@ -224,10 +226,13 @@ namespace TrayIcon {
         else if (bufferMode == 2) {
             bufferItemToCheck = IDM_MODE_FULLBUFFER;
         }
+        else if (bufferMode == 3) {
+            bufferItemToCheck = IDM_MODE_RESAMPLE;
+        }
 
         CheckMenuRadioItem(hAdvancedMenu,   // Menu handle
             IDM_MODE_AUTO,                  // First item in group
-            IDM_MODE_FULLBUFFER,            // Last item in group
+            IDM_MODE_RESAMPLE,              // Last item in group
             bufferItemToCheck,              // Item to check
             MF_BYCOMMAND);                  // Find items by ID
 
