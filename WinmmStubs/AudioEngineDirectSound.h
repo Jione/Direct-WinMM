@@ -55,22 +55,28 @@ private:
     void FillInitial();
     void RefillIfNeeded();
 
+    // Staging Ring Buffer Helpers
+    void StagingFree();
+    BOOL StagingInit(UINT sampleRate, UINT channels, UINT seconds);
+    DWORD StagingTopUp(); // produce from user callback into staging
+    DWORD StagingConsume(short* dst, DWORD wantFrames); // copy out
+
     // Fields
-    IDirectSound8       *ds; // DirectSound8
+    IDirectSound8       *ds;            // DirectSound8
     IDirectSoundBuffer  *primary;
     IDirectSoundBuffer  *secondary;
 
-    HANDLE              thread; // Streaming thread
-    HANDLE              stopEvent; // Stop signal event
-    volatile LONG       running; // 1=Playing, 0=Not
-    volatile LONG       paused; // 1=Paused
+    HANDLE              thread;         // Streaming thread
+    HANDLE              stopEvent;      // Stop signal event
+    volatile LONG       running;        // 1=Playing, 0=Not
+    volatile LONG       paused;         // 1=Paused
 
     // Format/Buffer
     WAVEFORMATEX        wfx;
-    DWORD               bufferBytes; // Total size of the secondary buffer
-    DWORD               halfBytes; // Half size (for double buffering)
-    DWORD               blockBytes; // Write unit (safe block)
-    DWORD               writeCursor; // The offset where write next
+    DWORD               bufferBytes;    // Total size of the secondary buffer
+    DWORD               halfBytes;      // Half size (for double buffering)
+    DWORD               blockBytes;     // Write unit (safe block)
+    DWORD               writeCursor;    // The offset where write next
     DWORD               lastPlayCursor;
     ULONGLONG           totalBytesPlayed;
 
@@ -80,14 +86,24 @@ private:
     BOOL                loop;
 
     // Status/Volume
-    float               volume01;   // Master Volume
+    float               volume01;       // Master Volume
     float               subVolL;
     float               subVolR;
     BOOL                muteL;
     BOOL                muteR;
-    DWORD               approxMs; // Approximate position (ms)
+    DWORD               approxMs;       // Approximate position (ms)
     UINT                samplerate;
     UINT                channels;
 
-    HWND                hwnd; // Target for SetCooperativeLevel
+    HWND                hwnd;           // Target for SetCooperativeLevel
+
+    // Staging ring buffer for multi-buffering
+    BYTE                *staging;           // contiguous ring storage
+    DWORD               stagingBytes;       // total bytes
+    DWORD               stagingFrames;      // total frames
+    DWORD               stagingWriteFrame;  // producer cursor (frames)
+    DWORD               stagingReadFrame;   // consumer cursor (frames)
+    DWORD               stagingFillFrames;  // how many frames currently stored
+    DWORD               targetPrebufferSec; // desired seconds to hold
+
 };

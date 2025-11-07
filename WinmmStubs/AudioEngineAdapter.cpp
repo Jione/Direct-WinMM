@@ -54,9 +54,8 @@ namespace {
         if (2 <= gBufferOverride) return TRUE;  // Force Full Buffer
 
         // Auto mode (0):
-        // Use FullBuffer for DirectSound (XP default)
-        // Use Streaming for WASAPI (Vista+ default)
-        return !UseWASAPI();
+        // From now on, if it's in Auto mode by default, it works as streaming.
+        return FALSE; // Auto mode
     }
 
     // Internal helper to determine if Resampling mode should be used, respecting FALSE.

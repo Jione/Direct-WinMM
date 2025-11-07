@@ -20,7 +20,10 @@ WasapiAudioEngine::WasapiAudioEngine()
     bufferFrameCount(0), fill(NULL), user(NULL), staticPcmData(NULL),
     staticTotalFrames(0), staticCurrentFrame(0), staticLoop(FALSE),
     volume01(1.0f), subVolL(1.0f), subVolR(1.0f),
-    muteL(FALSE), muteR(FALSE)
+    muteL(FALSE), muteR(FALSE),
+    staging(NULL), stagingBytes(0), stagingFrames(0),
+    stagingWriteFrame(0), stagingReadFrame(0), stagingFillFrames(0),
+    targetPrebufferSec(16) // default 16s
 {
     ZeroMemory(&wfx, sizeof(wfx));
 }
@@ -59,7 +62,29 @@ void WasapiAudioEngine::Shutdown() {
 
 void WasapiAudioEngine::ResetState() {
     volume01 = 1.0f;
+    StagingFree();
     ZeroMemory(&wfx, sizeof(wfx));
+}
+
+void WasapiAudioEngine::StagingFree() {
+    if (staging) { free(staging); staging = NULL; }
+    stagingBytes = stagingFrames = stagingWriteFrame = stagingReadFrame = stagingFillFrames = 0;
+}
+
+BOOL WasapiAudioEngine::StagingInit(UINT sampleRate, UINT channels, UINT seconds) {
+    StagingFree();
+    if (seconds < 3) seconds = 3;
+    if (seconds > 30) seconds = 30;
+    UINT32 frames = sampleRate * seconds;
+    UINT32 bytes = frames * (channels * sizeof(short));
+    if (wfx.nBlockAlign) bytes = (bytes / wfx.nBlockAlign) * wfx.nBlockAlign;
+    if (bytes == 0) return FALSE;
+    staging = (BYTE*)malloc(bytes);
+    if (!staging) return FALSE;
+    stagingBytes = bytes;
+    stagingFrames = bytes / wfx.nBlockAlign;
+    stagingWriteFrame = stagingReadFrame = stagingFillFrames = 0;
+    return TRUE;
 }
 
 // Stops stream playback and releases related resources (called from Stop())
@@ -165,57 +190,108 @@ DWORD WINAPI WasapiAudioEngine::ThreadProc(LPVOID ctx) {
 }
 
 void WasapiAudioEngine::ThreadLoop() {
-    // Wait time corresponding to half the buffer (ms)
     REFERENCE_TIME hnsBufferDuration = 0;
-    client->GetStreamLatency(&hnsBufferDuration); // Approximate buffer latency
+    client->GetStreamLatency(&hnsBufferDuration);
     DWORD sleepMs = HnsToMs(hnsBufferDuration) / 2;
+    if (sleepMs < 10) sleepMs = 10;
+    if (sleepMs > 100) sleepMs = 100;
 
-    if (sleepMs < 10) sleepMs = 10; // Min 10ms
-    if (sleepMs > 100) sleepMs = 100; // Max 100ms
-
-    // Start playback
-    if (FAILED(client->Start())) {
-        running = 0;
-        return;
-    }
+    if (FAILED(client->Start())) { running = 0; return; }
 
     for (;;) {
         DWORD wr = WaitForSingleObject(stopEvent, sleepMs);
-        if (wr == WAIT_OBJECT_0) break; // Stop signal
+        if (wr == WAIT_OBJECT_0) break;
+        if (paused) { Sleep(10); continue; }
 
-        if (paused) {
-            Sleep(10); // Short wait while paused
-            continue;
-        }
+        // top-up staging before we grab device buffer
+        StagingTopUp();
 
         UINT32 padding = 0;
         if (FAILED(client->GetCurrentPadding(&padding))) continue;
-
         UINT32 framesAvailable = bufferFrameCount - padding;
-        if (framesAvailable == 0) continue; // No space to fill
+        if (framesAvailable == 0) continue;
 
         BYTE* pData = NULL;
         if (FAILED(render->GetBuffer(framesAvailable, &pData))) continue;
 
-        // Fill data with callback
-        DWORD framesFilled = 0;
-        if (fill) {
-            framesFilled = fill((short*)pData, framesAvailable, user);
-        }
-
-        // If the callback filled less than requested (end of file, not looping),
-        // fill the rest with silence.
-        if (framesFilled < framesAvailable) {
-            DWORD silentFrames = framesAvailable - framesFilled;
-            DWORD silentBytes = silentFrames * wfx.nBlockAlign;
-            BYTE* pSilentStart = pData + (framesFilled * wfx.nBlockAlign);
-            ZeroMemory(pSilentStart, silentBytes);
-        }
+        // consume from staging into device buffer
+        StagingConsume((short*)pData, framesAvailable);
 
         render->ReleaseBuffer(framesAvailable, 0);
     }
 }
 
+UINT32 WasapiAudioEngine::StagingTopUp() {
+    if (!fill || !staging || stagingFrames == 0) return 0;
+    UINT32 produced = 0;
+    UINT32 targetFill = (stagingFrames * 9) / 10;
+
+    while (stagingFillFrames < targetFill) {
+        UINT32 chunk = (wfx.nSamplesPerSec / 2);
+        if (chunk < 256) chunk = 256;
+        UINT32 freeFrames = stagingFrames - stagingFillFrames;
+        if (freeFrames == 0) break;
+        if (chunk > freeFrames) chunk = freeFrames;
+
+        UINT32 w = stagingWriteFrame;
+        UINT32 canCont = stagingFrames - w;
+        UINT32 first = (chunk <= canCont) ? chunk : canCont;
+        UINT32 second = chunk - first;
+
+        short* dst1 = (short*)(staging + (w * wfx.nBlockAlign));
+        UINT32 got1 = 0;
+        if (first) {
+            got1 = fill(dst1, first, user);
+            if (got1 < first) {
+                ZeroMemory(dst1 + (got1 * wfx.nChannels),
+                    (first - got1) * wfx.nBlockAlign);
+            }
+        }
+        if (second) {
+            short* dst2 = (short*)staging;
+            UINT32 got2 = fill(dst2, second, user);
+            if (got2 < second) {
+                ZeroMemory(dst2 + (got2 * wfx.nChannels),
+                    (second - got2) * wfx.nBlockAlign);
+            }
+        }
+
+        stagingWriteFrame = (stagingWriteFrame + chunk) % stagingFrames;
+        stagingFillFrames += chunk;
+        produced += chunk;
+        if (chunk < (wfx.nSamplesPerSec / 8)) break;
+    }
+    return produced;
+}
+
+UINT32 WasapiAudioEngine::StagingConsume(short* dst, UINT32 wantFrames) {
+    if (!staging || stagingFillFrames == 0) {
+        ZeroMemory(dst, wantFrames * wfx.nBlockAlign);
+        return wantFrames;
+    }
+    UINT32 take = (wantFrames <= stagingFillFrames) ? wantFrames : stagingFillFrames;
+
+    UINT32 r = stagingReadFrame;
+    UINT32 canCont = stagingFrames - r;
+    UINT32 first = (take <= canCont) ? take : canCont;
+    UINT32 second = take - first;
+
+    memcpy(dst, staging + (r * wfx.nBlockAlign), first * wfx.nBlockAlign);
+    if (second) {
+        memcpy((BYTE*)dst + (first * wfx.nBlockAlign),
+            staging, second * wfx.nBlockAlign);
+    }
+
+    stagingReadFrame = (stagingReadFrame + take) % stagingFrames;
+    stagingFillFrames -= take;
+
+    if (take < wantFrames) {
+        ZeroMemory((BYTE*)dst + (take * wfx.nBlockAlign),
+            (wantFrames - take) * wfx.nBlockAlign);
+        return wantFrames;
+    }
+    return take;
+}
 
 BOOL WasapiAudioEngine::PlayStream(UINT sampleRate, UINT channels, PcmFillProc fillProc, void* userData, BOOL loop) {
     if (!device || !fillProc) return FALSE;
@@ -279,6 +355,11 @@ BOOL WasapiAudioEngine::PlayStream(UINT sampleRate, UINT channels, PcmFillProc f
 
     hr = client->GetService(__uuidof(IAudioClock), (void**)&clock);
     if (FAILED(hr)) { CleanupStream(); return FALSE; }
+
+    if (!StagingInit(wfx.nSamplesPerSec, wfx.nChannels, targetPrebufferSec)) {
+        CleanupStream();
+        return FALSE;
+    }
 
     // Apply current volume/mute state
     ApplyVolumeSettings();

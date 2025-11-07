@@ -52,7 +52,10 @@ DSoundAudioEngine::DSoundAudioEngine()
     volume01(1.0f), subVolL(1.0f), subVolR(1.0f),
     muteL(FALSE), muteR(FALSE),
     approxMs(0), samplerate(0), channels(0), hwnd(NULL),
-    lastPlayCursor(0), totalBytesPlayed(0)
+    lastPlayCursor(0), totalBytesPlayed(0),
+    staging(NULL), stagingBytes(0), stagingFrames(0),
+    stagingWriteFrame(0), stagingReadFrame(0), stagingFillFrames(0),
+    targetPrebufferSec(16) // default 16s
 {
     ZeroMemory(&wfx, sizeof(wfx));
 }
@@ -88,7 +91,30 @@ void DSoundAudioEngine::Shutdown() {
 void DSoundAudioEngine::ResetState() {
     volume01 = 1.0f; samplerate = 0; channels = 0;
     lastPlayCursor = 0; totalBytesPlayed = 0;
+    StagingFree();
     ZeroMemory(&wfx, sizeof(wfx));
+}
+
+void DSoundAudioEngine::StagingFree() {
+    if (staging) { free(staging); staging = NULL; }
+    stagingBytes = 0; stagingFrames = 0;
+    stagingWriteFrame = stagingReadFrame = stagingFillFrames = 0;
+}
+
+BOOL DSoundAudioEngine::StagingInit(UINT sampleRate, UINT channels, UINT seconds) {
+    StagingFree();
+    if (seconds < 3) seconds = 3;
+    if (seconds > 30) seconds = 30;
+    DWORD frames = sampleRate * seconds;
+    DWORD bytes = frames * (channels * sizeof(short));
+    bytes = AlignDown(bytes, wfx.nBlockAlign);
+    if (bytes == 0) return FALSE;
+    staging = (BYTE*)malloc(bytes);
+    if (!staging) return FALSE;
+    stagingBytes = bytes;
+    stagingFrames = bytes / wfx.nBlockAlign;
+    stagingWriteFrame = stagingReadFrame = stagingFillFrames = 0;
+    return TRUE;
 }
 
 BOOL DSoundAudioEngine::CreatePrimary() {
@@ -132,6 +158,8 @@ BOOL DSoundAudioEngine::CreateSecondary(UINT sampleRate, UINT channels) {
     bufferBytes = AlignDown(bytes4sec, wfx.nBlockAlign);
     halfBytes = bufferBytes / 2;
     blockBytes = bytes1sec ? bytes1sec : wfx.nBlockAlign;
+
+    if (!StagingInit(sampleRate, channels, targetPrebufferSec)) return FALSE;
 
     DSBUFFERDESC desc; ZeroMemory(&desc, sizeof(desc));
     desc.dwSize = sizeof(desc);
@@ -189,7 +217,7 @@ void DSoundAudioEngine::ThreadLoop() {
     if (secondary) secondary->Play(0, 0, DSBPLAY_LOOPING);
 
     for (;;) {
-        DWORD wr = WaitForSingleObject(stopEvent, 10);
+        DWORD wr = WaitForSingleObject(stopEvent, 15);
         if (wr == WAIT_OBJECT_0) break;
 
         if (paused) {
@@ -224,28 +252,107 @@ void DSoundAudioEngine::ThreadLoop() {
     if (secondary) secondary->Stop();
 }
 
-void DSoundAudioEngine::FillInitial() {
-    if (!secondary || !fill) return;
+DWORD DSoundAudioEngine::StagingTopUp() {
+    if (!fill || !staging || stagingFrames == 0) return 0;
+    DWORD produced = 0;
 
-    VOID* p1 = NULL; DWORD b1 = 0;
+    // try to fill up to ~90% of capacity to reduce callback overhead
+    DWORD targetFill = (stagingFrames * 9) / 10;
+    while (stagingFillFrames < targetFill) {
+        // produce in chunks (>= 1/2 sec)
+        DWORD chunk = (samplerate / 2);
+        if (chunk < 256) chunk = 256; // guard
+        // clamp to free space
+        DWORD freeFrames = stagingFrames - stagingFillFrames;
+        if (freeFrames == 0) break;
+        if (chunk > freeFrames) chunk = freeFrames;
 
-    if (FAILED(secondary->Lock(0, halfBytes, &p1, &b1, NULL, NULL, 0))) return;
+        // write pointer
+        DWORD w = stagingWriteFrame;
+        DWORD canCont = stagingFrames - w;
+        DWORD first = (chunk <= canCont) ? chunk : canCont;
+        DWORD second = chunk - first;
 
-    if (p1 && b1 > 0)
-    {
-        DWORD framesWant = b1 / wfx.nBlockAlign;
-        DWORD got = 0;
-
-        if (fill) {
-            got = fill((short*)p1, framesWant, user);
+        short* dst1 = (short*)(staging + (w * wfx.nBlockAlign));
+        DWORD got1 = 0;
+        if (first) {
+            got1 = fill(dst1, first, user);
+            if (got1 < first) {
+                // zero-fill the rest to avoid ring-repeat glitch
+                ZeroMemory(dst1 + (got1 * wfx.nChannels),
+                    (first - got1) * wfx.nBlockAlign);
+            }
         }
 
-        DWORD bytesFilled = (got * wfx.nBlockAlign);
-        if (bytesFilled < b1) {
-            ZeroMemory(((BYTE*)p1) + bytesFilled, b1 - bytesFilled);
+        if (second) {
+            short* dst2 = (short*)staging;
+            DWORD got2 = fill(dst2, second, user);
+            if (got2 < second) {
+                ZeroMemory(dst2 + (got2 * wfx.nChannels),
+                    (second - got2) * wfx.nBlockAlign);
+            }
         }
+
+        // Always advance by 'chunk' to keep timeline monotonic
+        stagingWriteFrame = (stagingWriteFrame + chunk) % stagingFrames;
+        stagingFillFrames += chunk;
+        produced += chunk;
+
+        // if callback is truly out of data (returns 0 twice), we still
+        // advanced with zeros; future consume will play silence, not old data
+        if (chunk < (samplerate / 8)) break; // tiny top-up avoid busy loop
+    }
+    return produced;
+}
+
+DWORD DSoundAudioEngine::StagingConsume(short* dst, DWORD wantFrames) {
+    if (!staging || stagingFillFrames == 0) {
+        // no data -> zero
+        ZeroMemory(dst, wantFrames * wfx.nBlockAlign);
+        return wantFrames;
+    }
+    DWORD take = (wantFrames <= stagingFillFrames) ? wantFrames : stagingFillFrames;
+
+    DWORD r = stagingReadFrame;
+    DWORD canCont = stagingFrames - r;
+    DWORD first = (take <= canCont) ? take : canCont;
+    DWORD second = take - first;
+
+    memcpy(dst,
+        staging + (r * wfx.nBlockAlign),
+        first * wfx.nBlockAlign);
+
+    if (second) {
+        memcpy((BYTE*)dst + (first * wfx.nBlockAlign),
+            staging,
+            second * wfx.nBlockAlign);
     }
 
+    stagingReadFrame = (stagingReadFrame + take) % stagingFrames;
+    stagingFillFrames -= take;
+
+    if (take < wantFrames) {
+        ZeroMemory((BYTE*)dst + (take * wfx.nBlockAlign),
+            (wantFrames - take) * wfx.nBlockAlign);
+        return wantFrames;
+    }
+    return take;
+}
+
+void DSoundAudioEngine::FillInitial() {
+    if (!secondary) return;
+
+    // prefill staging first
+    StagingTopUp();
+
+    VOID* p1 = NULL; DWORD b1 = 0;
+    if (FAILED(secondary->Lock(0, halfBytes, &p1, &b1, NULL, NULL, 0))) return;
+
+    if (p1 && b1 > 0) {
+        DWORD framesWant = b1 / wfx.nBlockAlign;
+        // consume from staging (will zero-fill if shortage)
+        StagingConsume((short*)p1, framesWant);
+    }
     secondary->Unlock(p1, b1, NULL, NULL);
     writeCursor = b1;
 }
@@ -277,23 +384,21 @@ void DSoundAudioEngine::RefillIfNeeded() {
     toFill = AlignDown(toFill, wfx.nBlockAlign);
     if (toFill == 0) return;
 
+    StagingTopUp();
+
     VOID* p1 = NULL; DWORD b1 = 0; VOID* p2 = NULL; DWORD b2 = 0;
     if (FAILED(secondary->Lock(writeCursor, toFill, &p1, &b1, &p2, &b2, 0))) return;
 
     // p1
     if (b1) {
         DWORD frames = b1 / wfx.nBlockAlign;
-        DWORD got = fill ? fill((short*)p1, frames, user) : 0;
-        DWORD filled = got * wfx.nBlockAlign;
-        if (filled < b1) ZeroMemory(((BYTE*)p1) + filled, b1 - filled);
+        StagingConsume((short*)p1, frames); // always fills fully (zero-pads)
         writeCursor = (writeCursor + b1) % bufferBytes;
     }
     // p2
     if (p2 && b2) {
         DWORD frames = b2 / wfx.nBlockAlign;
-        DWORD got = fill ? fill((short*)p2, frames, user) : 0;
-        DWORD filled = got * wfx.nBlockAlign;
-        if (filled < b2) ZeroMemory(((BYTE*)p2) + filled, b2 - filled);
+        StagingConsume((short*)p2, frames);
         writeCursor = (writeCursor + b2) % bufferBytes;
     }
     secondary->Unlock(p1, b1, p2, b2);
