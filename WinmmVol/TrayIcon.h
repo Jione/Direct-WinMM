@@ -19,4 +19,7 @@ namespace TrayIcon {
     // Refresh tray icon from registry (mute + volume%)
     void RefreshFromRegistry();
 
+    void SetShowAllApps(BOOL enable);
+    BOOL GetShowAllApps();
+
 } // namespace TrayIcon

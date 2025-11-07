@@ -69,34 +69,20 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 
     case WM_COMMAND: // Menu item selected
         switch (LOWORD(wParam)) {
-        // Handle Buffer Mode selection
-        case IDM_MODE_AUTO:
-            RegistryManager::SetBufferMode(0); // 0 = Auto
-            break;
-        case IDM_MODE_STREAMING:
-            RegistryManager::SetBufferMode(1); // 1 = Streaming
-            break;
-        case IDM_MODE_FULLBUFFER:
-            RegistryManager::SetBufferMode(2); // 2 = Full Buffer
-            break;
-        case IDM_MODE_RESAMPLE:
-            RegistryManager::SetBufferMode(3); // 3 = Full Buffer + Resampling
-            break;
-        // Handle Engine Mode selection
-        case IDM_ENGINE_AUTO:
-            RegistryManager::SetEngineMode(0); // 0 = Auto
-            break;
-        case IDM_ENGINE_DS:
-            RegistryManager::SetEngineMode(1); // 1 = Force DirectSound
-            break;
-        case IDM_ENGINE_WASAPI:
-            RegistryManager::SetEngineMode(2); // 2 = Force WASAPI
-            break;
         case IDM_INFO_USAGE:
             AboutDialog::ShowUsage(g_hInstance, hwnd);
             break;
         case IDM_INFO_LICENSE:
             AboutDialog::ShowLicense(g_hInstance, hwnd);
+            break;
+        case IDM_MODE_CLEAR:
+            RegistryManager::ResetAllSettings();
+            TrayIcon::RefreshFromRegistry();
+            VolumeSlider::UpdateDisplay(g_hSliderWnd);
+            break;
+        case IDM_SHOW_ALL_APPS:
+            TrayIcon::SetShowAllApps(!TrayIcon::GetShowAllApps());
+            VolumeSlider::UpdateDisplay(g_hSliderWnd);
             break;
         case IDM_EXIT:
             DestroyWindow(hwnd); // Trigger WM_DESTROY and exit message loop

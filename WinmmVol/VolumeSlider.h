@@ -16,4 +16,7 @@ namespace VolumeSlider {
     // Updates the slider position and text based on registry value
     void UpdateDisplay(HWND hwndSlider);
 
+    // Shows all application settings
+    void SetShowAllApps(BOOL enable);
+
 } // namespace VolumeSlider

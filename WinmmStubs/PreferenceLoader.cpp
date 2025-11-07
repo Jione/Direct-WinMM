@@ -1,167 +1,166 @@
 #include "PreferenceLoader.h"
 #include "AudioEngineAdapter.h" // To get/set master volume, buffer mode, AND engine mode
-#include "DeviceInfo.h"         // To potentially link initialization
-#include <windows.h>
-#include <regstr.h> // For REGSTR_PATH_SOFTWARE etc. (optional, can build string manually)
-#include <process.h> // For _beginthreadex
+#include <iostream>
+#include <shlwapi.h>
+#include <tlhelp32.h>
+#pragma comment(lib, "Advapi32.lib")
+#pragma comment(lib, "Shlwapi.lib")
 
-// --- Configuration ---
-const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs"; // Relative to HKCU
-
-// Consolidated to one registry value
-const wchar_t* const PLAYER_MODE_VALUE_NAME = L"PlayerMode";
+// Configuration
+static const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs";
+static const wchar_t* const SUBKEY_GLOBAL = L"Global";
+static const wchar_t* const VAL_OVERRIDE = L"Override";
+static const wchar_t* const VAL_EXE = L"";             // default value "@" (REG_SZ)
+static const wchar_t* const VAL_PID = L"ProcessID";    // REG_DWORD
+static const wchar_t* const VAL_LASTSEEN = L"LastSeen";     // REG_QWORD
 
 const wchar_t* const EXE_NAME = L"WinmmVol.exe";
 const wchar_t* const MUTEX_NAME = L"WinMM-Stubs Volume Control";
 const wchar_t* const EXE_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
 const UINT WM_EXIT_APP = WM_APP + 1; // Custom message to signal the EXE
 
-// --- PlayerMode Bitmask Definitions (Self-contained) ---
-// Volume (7 bits)
-const DWORD PM_VOL_SHIFT = 0;
-const DWORD PM_VOL_MASK = 0x7F << PM_VOL_SHIFT; // 0x7F (0b1111111) for 7 bits
+// Bit layout
+constexpr DWORD OV_VOL_SHIFT = 0;                // 0..100
+constexpr DWORD OV_VOL_MASK = 0x7Fu << OV_VOL_SHIFT;
 
-// Mute (1 bit)
-const DWORD PM_MUTE_SHIFT = 7;
-const DWORD PM_MUTE_MASK = 1 << PM_MUTE_SHIFT;
+constexpr DWORD OV_MUTE_SHIFT = 7;                // 0/1
+constexpr DWORD OV_MUTE_MASK = 1u << OV_MUTE_SHIFT;
 
-// Buffer Mode (2 bits)
-const DWORD PM_BUFFER_SHIFT = 8;
-const DWORD PM_BUFFER_MASK = 3 << PM_BUFFER_SHIFT; // 3 (0b11) for 2 bits
+constexpr DWORD OV_BUFFER_SHIFT = 8;                // 0=Auto,1=Streaming,2=Full,3=Resample
+constexpr DWORD OV_BUFFER_MASK = 3u << OV_BUFFER_SHIFT;
 
-// Engine Mode (2 bits)
-const DWORD PM_ENGINE_SHIFT = 10;
-const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT; // 3 (0b11) for 2 bits
+constexpr DWORD OV_ENGINE_SHIFT = 10;               // 0=Auto,1=DS,2=WASAPI
+constexpr DWORD OV_ENGINE_MASK = 3u << OV_ENGINE_SHIFT;
 
-// Default value: Volume=100 (0x64), Mute=0, Buffer=0, Engine=0
-const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x00000064;
+// Default = 0x00000064 (vol=100, mute=0, buffer=0, engine=0)
+constexpr DWORD OV_DEFAULT = 0x00000064;
 
 
 namespace {
-    // --- Internal State ---
-    static CRITICAL_SECTION g_cs;
-    static BOOL g_bInitialized = FALSE;
-    static HANDLE g_hMonitorThread = NULL;
-    static HANDLE g_hQuitEvent = NULL;
-    static HKEY g_hRegKey = NULL;
-    static HANDLE g_hRegChangeEvent = NULL;
-    static HANDLE g_hExeProcess = NULL; // Keep track
-    static HWND g_hExeWnd = NULL;       // Cache the window handle
 
-    // --- Internal Helpers ---
-    static void Lock() { EnterCriticalSection(&g_cs); }
-    static void Unlock() { LeaveCriticalSection(&g_cs); }
+    static HKEY  gRoot = NULL;   // HKCU\Software\WinmmStubs
+    static HKEY  gGlobal = NULL;   // HKCU\...\Global
+    static HKEY  gApp = NULL;   // HKCU\...\{GUID}
+    static HANDLE gThread = NULL;
+    static HANDLE gStop = NULL;
 
-    // Converts 7-bit percent (0-100) to float (0.0 - 1.0).
-    static float VolumePercentToFloat(int percent) {
-        if ((DWORD)percent <= 0) return 0.0f;
-        if ((DWORD)percent >= 100) return 100.0f;
-        return (float)percent / 100.0f;
-    }
+    static std::wstring gGuidKey;      // "{GUID}" as registry subkey name
+    static std::wstring gExeFullPath;  // current exe full path
+    static DWORD        gPid = 0;
 
-    // The background thread function that monitors registry changes.
-    static unsigned int __stdcall MonitorThreadProc(void* /*pParam*/) {
-        while (true) {
-            // Register for change notification
-            if (g_hRegKey && g_hRegChangeEvent) {
-                RegNotifyChangeKeyValue(g_hRegKey,
-                    FALSE, // Don't watch subtree
-                    REG_NOTIFY_CHANGE_LAST_SET, // Watch value changes
-                    g_hRegChangeEvent,
-                    TRUE); // Asynchronous
-            }
-            else {
-                Sleep(1000);
-                continue;
-            }
+    static int gBufferMode = 0;
+    static int gEngineMode = 0;
+    static int gVolume = 100;
+    static BOOL gMute = FALSE;
 
-            // Wait for registry change or quit signal
-            HANDLE waitHandles[] = { g_hQuitEvent, g_hRegChangeEvent };
-            DWORD waitResult = WaitForMultipleObjects(2, waitHandles, FALSE, INFINITE);
+    static PROCESS_INFORMATION gVolProc = {}; // launched WinmmVol.exe, if any
 
-            if (waitResult == WAIT_OBJECT_0) {
-                // Quit event signaled
-                break;
-            }
-            else if (waitResult == WAIT_OBJECT_0 + 1) {
-                Lock();
-                if (g_hRegKey) {
-                    // Read the single PlayerMode DWORD
-                    DWORD dwPlayerMode = 0;
-                    DWORD dwSize = sizeof(dwPlayerMode);
-                    DWORD dwType = 0;
-                    LSTATUS status = RegQueryValueExW(g_hRegKey,
-                        PLAYER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwPlayerMode, &dwSize);
-
-                    // Use default on failure
-                    if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
-                        dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
-                    }
-
-                    // --- Extract values from bitmask ---
-                    int nVolume = (int)((dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT); // 7-bit int
-                    BOOL bMute = (dwPlayerMode & PM_MUTE_MASK) != 0;
-                    int nBufferMode = (int)((dwPlayerMode & PM_BUFFER_MASK) >> PM_BUFFER_SHIFT);
-                    int nEngineMode = (int)((dwPlayerMode & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
-
-                    // --- Apply all settings ---
-
-                    // Apply Volume Logic
-                    float finalVolume;
-                    if (bMute) {
-                        finalVolume = 0.0f;
-                        dprintf(L"Registry change detected. PlayerMode=0x%X. Setting Mute=1.", dwPlayerMode);
-                    }
-                    else {
-                        finalVolume = VolumePercentToFloat(nVolume); // Convert 0-100 to 0.0-1.0
-                        dprintf(L"Registry change detected. PlayerMode=0x%X. Setting Vol=%f.", dwPlayerMode, finalVolume);
-                    }
-                    AudioEngine::SetMasterVolume(finalVolume);
-
-                    // Apply Buffer Mode Logic
-                    dprintf(L"Registry change detected. Setting BufferMode=%d.", nBufferMode);
-                    AudioEngine::SetBufferMode(nBufferMode);
-
-                    // Apply Engine Mode Logic
-                    dprintf(L"Registry change detected. Setting EngineMode=%d.", nEngineMode);
-                    AudioEngine::SetEngineOverride(nEngineMode);
-                }
-                ResetEvent(g_hRegChangeEvent); // Reset the event *before* re-registering
-                Unlock();
-            }
-            else {
-                dprintf(L"WaitForMultipleObjects failed in MonitorThreadProc: %d", GetLastError());
-                Sleep(500); // Avoid tight loop on error
-            }
-        } // while(true)
-
-        return 0;
-    }
-
-    // Tries to find the main window of the WinmmVol.exe process.
-    static HWND FindExeWindow() {
-        HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
-        return hwnd;
-    }
-
-} // namespace
-
-
-namespace PreferenceLoader {
-
-    BOOL Initialize() {
-        if (g_bInitialized) return TRUE;
-
-        InitializeCriticalSection(&g_cs);
-        Lock();
-
-        if (g_bInitialized) {
-            Unlock();
-            return TRUE;
+    // simple 64-bit FNV-1a to derive a deterministic "GUID-like" key
+    static ULONGLONG Fnv1a64(const void* data, size_t len) {
+        const unsigned char* p = (const unsigned char*)data;
+        ULONGLONG h = 1469598103934665603ULL;
+        for (size_t i = 0; i < len; ++i) {
+            h ^= (ULONGLONG)p[i];
+            h *= 1099511628211ULL;
         }
+        return h;
+    }
 
-        bool success = true;
+    static std::wstring MakePseudoGuidFromPath(const std::wstring& path) {
+        std::wstring lower = path;
+        CharLowerBuffW(&lower[0], (DWORD)lower.size());
+        ULONGLONG h1 = Fnv1a64(lower.c_str(), lower.size() * sizeof(wchar_t));
+        ULONGLONG h2 = Fnv1a64(&h1, sizeof(h1));
+        wchar_t buf[64];
+        // 8-4-4-4-12 style (pseudo)
+        wsprintfW(buf, L"%08X-%04X-%04X-%04X-%012I64X",
+            (UINT)(h1 & 0xFFFFFFFFu),
+            (UINT)((h1 >> 32) & 0xFFFFu),
+            (UINT)((h1 >> 48) & 0xFFFFu),
+            (UINT)(h2 & 0xFFFFu),
+            (ULONGLONG)(h2 >> 16));
+        return std::wstring(buf);
+    }
 
+    static inline ULONGLONG NowFileTimeQword() {
+        FILETIME ft; ::GetSystemTimeAsFileTime(&ft);
+        ULARGE_INTEGER u; u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;
+        return u.QuadPart;
+    }
+
+    static bool OpenOrCreateKey(HKEY parent, LPCWSTR sub, REGSAM sam, HKEY& out) {
+        out = NULL;
+        return RegCreateKeyExW(parent, sub, 0, NULL, REG_OPTION_NON_VOLATILE, sam, NULL, &out, NULL) == ERROR_SUCCESS;
+    }
+    static bool OpenKey(HKEY parent, LPCWSTR sub, REGSAM sam, HKEY& out) {
+        out = NULL;
+        return RegOpenKeyExW(parent, sub, 0, sam, &out) == ERROR_SUCCESS;
+    }
+    static bool ReadDWORD(HKEY h, LPCWSTR name, DWORD& out) {
+        DWORD type = 0, cb = sizeof(out);
+        return (RegQueryValueExW(h, name, NULL, &type, (LPBYTE)&out, &cb) == ERROR_SUCCESS && type == REG_DWORD);
+    }
+    static bool WriteDWORD(HKEY h, LPCWSTR name, DWORD v) {
+        return RegSetValueExW(h, name, 0, REG_DWORD, (const BYTE*)&v, sizeof(v)) == ERROR_SUCCESS;
+    }
+    static bool ReadQWORD(HKEY h, LPCWSTR name, ULONGLONG& out) {
+        DWORD type = 0, cb = sizeof(out);
+        return (RegQueryValueExW(h, name, NULL, &type, (LPBYTE)&out, &cb) == ERROR_SUCCESS && type == REG_QWORD);
+    }
+    static bool WriteQWORD(HKEY h, LPCWSTR name, ULONGLONG v) {
+        return RegSetValueExW(h, name, 0, REG_QWORD, (const BYTE*)&v, sizeof(v)) == ERROR_SUCCESS;
+    }
+    static bool ReadSZ(HKEY h, LPCWSTR name, std::wstring& out) {
+        DWORD type = 0, cb = 0;
+        if (RegQueryValueExW(h, name, NULL, &type, NULL, &cb) != ERROR_SUCCESS) return false;
+        if (type != REG_SZ && type != REG_EXPAND_SZ) return false;
+        std::wstring buf; buf.resize(cb / sizeof(wchar_t));
+        if (RegQueryValueExW(h, name, NULL, &type, (LPBYTE)buf.data(), &cb) != ERROR_SUCCESS) return false;
+        if (!buf.empty() && buf.back() == L'\0') buf.pop_back();
+        out.swap(buf); return true;
+    }
+    static bool WriteSZ(HKEY h, LPCWSTR name, const std::wstring& v) {
+        DWORD cb = (DWORD)((v.size() + 1) * sizeof(wchar_t));
+        return RegSetValueExW(h, name, 0, REG_SZ, (const BYTE*)v.c_str(), cb) == ERROR_SUCCESS;
+    }
+
+    // field helpers
+    static inline int  OV_GetVolume(DWORD ov) { return (int)((ov & OV_VOL_MASK) >> OV_VOL_SHIFT); }
+    static inline BOOL OV_GetMute(DWORD ov) { return (ov & OV_MUTE_MASK) ? TRUE : FALSE; }
+    static inline int  OV_GetBuffer(DWORD ov) { return (int)((ov & OV_BUFFER_MASK) >> OV_BUFFER_SHIFT); }
+    static inline int  OV_GetEngine(DWORD ov) { return (int)((ov & OV_ENGINE_MASK) >> OV_ENGINE_SHIFT); }
+    static inline DWORD OV_WithVolume(DWORD ov, int v) {
+        if (v < 0) v = 0; if (v > 100) v = 100;
+        return (ov & ~OV_VOL_MASK) | ((DWORD)v << OV_VOL_SHIFT);
+    }
+
+    // compute effective from two overrides
+    static DWORD ComputeEffective(DWORD g, DWORD a) {
+        int eng = OV_GetEngine(a); if (eng == 0) eng = OV_GetEngine(g);
+        int buf = OV_GetBuffer(a); if (buf == 0) buf = OV_GetBuffer(g);
+        BOOL mt = OV_GetMute(g) || OV_GetMute(a);
+        int vg = OV_GetVolume(g), va = OV_GetVolume(a);
+        int ve = (vg * va + 50) / 100;
+
+        DWORD eff = 0;
+        eff |= ((DWORD)eng << OV_ENGINE_SHIFT) & OV_ENGINE_MASK;
+        eff |= ((DWORD)buf << OV_BUFFER_SHIFT) & OV_BUFFER_MASK;
+        if (mt) eff |= OV_MUTE_MASK;
+        eff = OV_WithVolume(eff, ve);
+        return eff;
+    }
+
+    // WinmmVol.exe launcher / graceful close
+    static BOOL IsProcessAlive(DWORD pid) {
+        if (!pid) return FALSE;
+        HANDLE h = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+        if (!h) return FALSE;
+        DWORD code = 0; BOOL ok = GetExitCodeProcess(h, &code);
+        CloseHandle(h);
+        return ok && code == STILL_ACTIVE;
+    }
+
+    static BOOL LaunchWinmmVolIfExists() {
         HANDLE hMutex = CreateMutexW(NULL, TRUE, MUTEX_NAME);
         bool alreadyRunning = (GetLastError() == ERROR_ALREADY_EXISTS);
 
@@ -169,185 +168,265 @@ namespace PreferenceLoader {
             dprintf(L"Mutex created. Attempting to launch %s...", EXE_NAME);
             STARTUPINFOW si = { sizeof(si) };
             PROCESS_INFORMATION pi = { 0 };
-            wchar_t exePath[MAX_PATH];
             ReleaseMutex(hMutex);
             CloseHandle(hMutex);
-            GetModuleFileNameW(NULL, exePath, MAX_PATH);
-            wchar_t* lastSlash = wcsrchr(exePath, L'\\');
-            if (lastSlash) {
-                *(lastSlash + 1) = L'\0';
-                lstrcatW(exePath, EXE_NAME);
-                if (CreateProcessW(NULL, exePath, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-                    dprintf(L"Launched %s successfully.", EXE_NAME);
-                    g_hExeProcess = pi.hProcess;
-                    CloseHandle(pi.hThread);
-                    Sleep(500);
-                    g_hExeWnd = FindExeWindow();
-                }
-                else {
-                    dprintf(L"Failed to launch %s. Error: %d", EXE_NAME, GetLastError());
-                }
+            wchar_t dir[MAX_PATH]; GetModuleFileNameW(NULL, dir, MAX_PATH);
+            PathRemoveFileSpecW(dir);
+            wchar_t exe[MAX_PATH]; lstrcpyW(exe, dir);
+            PathAppendW(exe, EXE_NAME);
+            if (!PathFileExistsW(exe)) {
+                dprintf(L"Could not determine path to launch %s.", EXE_NAME);
+                return FALSE;
+            }
+            BOOL ok = CreateProcessW(exe, NULL, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi);
+            if (ok) {
+                dprintf(L"Launched %s successfully.", EXE_NAME);
+                gVolProc = pi;
+                CloseHandle(pi.hThread);
+                Sleep(500);
+                return TRUE;
             }
             else {
-                dprintf(L"Could not determine path to launch %s.", EXE_NAME);
+                dprintf(L"Failed to launch %s. Error: %d", EXE_NAME, GetLastError());
             }
         }
         else if (alreadyRunning) {
             dprintf(L"%s seems to be already running (Mutex exists).", EXE_NAME);
             if (hMutex) CloseHandle(hMutex);
-            g_hExeWnd = FindExeWindow();
         }
         else {
             dprintf(L"Failed to create or open mutex '%s'. Error: %d", MUTEX_NAME, GetLastError());
         }
+        return FALSE;
+    }
 
+    static BOOL CloseWinmmVolIfLaunched() {
+        if (!gVolProc.hProcess) return FALSE;
+        DWORD pid = gVolProc.dwProcessId;
+        if (!IsProcessAlive(pid)) goto _cleanup;
 
-        // Open/Create Registry Key
-        LSTATUS regStatus = RegCreateKeyExW(HKEY_CURRENT_USER,
-            REGISTRY_PATH,
-            0, NULL, REG_OPTION_NON_VOLATILE,
-            KEY_READ | KEY_WRITE | KEY_NOTIFY,
-            NULL, &g_hRegKey, NULL);
-
-        if (regStatus != ERROR_SUCCESS) {
-            dprintf(L"Failed to open/create registry key '%s'. Error: %d", REGISTRY_PATH, regStatus);
-            success = false;
+        // Find top-level windows of that PID, send WM_CLOSE
+        HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
+        if (hwnd) {
+            PostMessageW(hwnd, WM_EXIT_APP, 0, 0);
         }
-        else {
-            // Check/Create the single PlayerMode Value
-            DWORD dwPlayerMode = 0;
-            DWORD dwSize = sizeof(dwPlayerMode);
-            DWORD dwType = 0;
-            regStatus = RegQueryValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwPlayerMode, &dwSize);
+    _cleanup:
+        CloseHandle(gVolProc.hThread);
+        CloseHandle(gVolProc.hProcess);
+        ZeroMemory(&gVolProc, sizeof(gVolProc));
+        return TRUE;
+    }
 
-            if (regStatus == ERROR_FILE_NOT_FOUND) {
-                dprintf(L"Registry value '%s' not found. Creating with default 0x%X", PLAYER_MODE_VALUE_NAME, DEFAULT_PLAYER_MODE_DWORD);
-                dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
-                regStatus = RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwPlayerMode, sizeof(dwPlayerMode));
-                if (regStatus != ERROR_SUCCESS) {
-                    dprintf(L"Failed to create registry value '%s'. Error: %d", PLAYER_MODE_VALUE_NAME, regStatus);
-                    success = false;
-                }
+    // -----------------------------------------------------------------------------
+    // Registry init / touch
+    // -----------------------------------------------------------------------------
+    static BOOL EnsureRootAndGlobal() {
+        if (!gRoot) {
+            if (RegCreateKeyExW(HKEY_CURRENT_USER, REGISTRY_PATH, 0, NULL,
+                REG_OPTION_NON_VOLATILE, KEY_READ | KEY_WRITE, NULL, &gRoot, NULL) != ERROR_SUCCESS)
+                return FALSE;
+        }
+        if (!gGlobal) {
+            if (!OpenOrCreateKey(gRoot, SUBKEY_GLOBAL, KEY_READ | KEY_WRITE, gGlobal)) return FALSE;
+            DWORD ov = 0; DWORD type = 0, cb = sizeof(ov);
+            if (RegQueryValueExW(gGlobal, VAL_OVERRIDE, NULL, &type, (LPBYTE)&ov, &cb) != ERROR_SUCCESS || type != REG_DWORD) {
+                WriteDWORD(gGlobal, VAL_OVERRIDE, OV_DEFAULT);
             }
-            else if (regStatus != ERROR_SUCCESS || dwType != REG_DWORD) {
-                dprintf(L"Failed to query registry value '%s' or wrong type. Overwriting...", PLAYER_MODE_VALUE_NAME);
-                dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
-                RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwPlayerMode, sizeof(dwPlayerMode));
+        }
+        return TRUE;
+    }
+
+    static BOOL EnsureAppKey() {
+        if (gApp) return TRUE;
+        if (!OpenOrCreateKey(gRoot, gGuidKey.c_str(), KEY_READ | KEY_WRITE, gApp)) return FALSE;
+
+        // @ exe path
+        std::wstring cur;
+        if (!ReadSZ(gApp, VAL_EXE, cur) || cur != gExeFullPath) WriteSZ(gApp, VAL_EXE, gExeFullPath);
+        // PID
+        DWORD pid = 0; if (!ReadDWORD(gApp, VAL_PID, pid) || pid != gPid) WriteDWORD(gApp, VAL_PID, gPid);
+        // Override default
+        DWORD ov = 0; DWORD type = 0, cb = sizeof(ov);
+        if (RegQueryValueExW(gApp, VAL_OVERRIDE, NULL, &type, (LPBYTE)&ov, &cb) != ERROR_SUCCESS || type != REG_DWORD) {
+            WriteDWORD(gApp, VAL_OVERRIDE, OV_DEFAULT);
+        }
+        // LastSeen create
+        ULONGLONG ls = 0; if (!ReadQWORD(gApp, VAL_LASTSEEN, ls)) WriteQWORD(gApp, VAL_LASTSEEN, NowFileTimeQword());
+
+        return TRUE;
+    }
+
+    static void TouchLastSeen() {
+        if (!gApp) return;
+        WriteQWORD(gApp, VAL_LASTSEEN, NowFileTimeQword());
+    }
+
+    // read helpers
+    static DWORD ReadGlobalOverride() {
+        DWORD ov = OV_DEFAULT, type = 0, cb = sizeof(ov);
+        if (!gGlobal) return OV_DEFAULT;
+        if (RegQueryValueExW(gGlobal, VAL_OVERRIDE, NULL, &type, (LPBYTE)&ov, &cb) != ERROR_SUCCESS || type != REG_DWORD)
+            ov = OV_DEFAULT;
+        return ov;
+    }
+    static DWORD ReadAppOverride() {
+        DWORD ov = OV_DEFAULT, type = 0, cb = sizeof(ov);
+        if (!gApp) return OV_DEFAULT;
+        if (RegQueryValueExW(gApp, VAL_OVERRIDE, NULL, &type, (LPBYTE)&ov, &cb) != ERROR_SUCCESS || type != REG_DWORD)
+            ov = OV_DEFAULT;
+        return ov;
+    }
+
+    // -----------------------------------------------------------------------------
+    // Engine/apply
+    // -----------------------------------------------------------------------------
+    static float VolumePercentToFloat(int percent) {
+        if ((DWORD)percent <= 0) return 0.0f;
+        if ((DWORD)percent >= 100) return 100.0f;
+        return (float)percent / 100.0f;
+    }
+
+    static void ApplyEffectiveOverride(DWORD eff) {
+        int nBufferMode = OV_GetBuffer(eff);
+        int nEngineMode = OV_GetEngine(eff);
+        int nVolume = OV_GetVolume(eff);
+        BOOL bMute = OV_GetMute(eff);
+
+        if (gBufferMode != nBufferMode) {
+            AudioEngine::SetBufferMode(nBufferMode);
+            gBufferMode = nBufferMode;
+            dprintf(L"Registry change detected. Setting BufferMode=%d.", nBufferMode);
+        }
+        if (gEngineMode != nEngineMode) {
+            AudioEngine::SetEngineOverride(nEngineMode);
+            gEngineMode = nEngineMode;
+            dprintf(L"Registry change detected. Setting EngineMode=%d.", nEngineMode);
+        }
+        if ((gMute != bMute) || (gVolume != nVolume)) {
+            float finalVolume = 0.0f;
+            if (!bMute) {
+                finalVolume = VolumePercentToFloat(nVolume);
             }
-            // At this point, dwPlayerMode holds the last saved (or default) settings
+            AudioEngine::SetMasterVolume(finalVolume);
+            gMute = bMute;
+            gVolume = nVolume;
+            dprintf(L"Registry change detected. Mute=%d Vol=%f", bMute, finalVolume);
+        }
+    }
 
-            // --- Extract and apply all initial settings from the DWORD ---
-            // Extract values
-            int nVolume = (int)((dwPlayerMode & PM_VOL_MASK) >> PM_VOL_SHIFT); // 7-bit int
-            BOOL bMute = (dwPlayerMode & PM_MUTE_MASK) != 0;
-            int nBufferMode = (int)((dwPlayerMode & PM_BUFFER_MASK) >> PM_BUFFER_SHIFT);
-            int nEngineMode = (int)((dwPlayerMode & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
+    // -----------------------------------------------------------------------------
+    // Watcher thread
+    // -----------------------------------------------------------------------------
+    static DWORD WINAPI WatcherThreadProc(LPVOID) {
+        // open handles to watch
+        HANDLE hEvtStop = gStop;
 
-            // Apply Initial Volume Based on Mute State
-            if (bMute) {
-                AudioEngine::SetMasterVolume(0.0f);
-                dprintf(L"Initial state: Muted. (PlayerMode=0x%X)", dwPlayerMode);
+        HANDLE hEvtGlobal = CreateEventW(NULL, FALSE, FALSE, NULL);
+        HANDLE hEvtApp = CreateEventW(NULL, FALSE, FALSE, NULL);
+
+        auto ArmNotify = [](HKEY hKey, HANDLE hEvent) -> BOOL {
+            if (!hKey || !hEvent) return FALSE;
+            // subtree=FALSE (one key), change=LAST_SET, synchronous
+            return RegNotifyChangeKeyValue(hKey, FALSE,
+                REG_NOTIFY_CHANGE_LAST_SET | REG_NOTIFY_CHANGE_NAME,
+                hEvent, TRUE) == ERROR_SUCCESS;
+            };
+
+        // initial arm
+        ArmNotify(gGlobal, hEvtGlobal);
+        ArmNotify(gApp, hEvtApp);
+
+        // initial apply
+        DWORD g = ReadGlobalOverride();
+        DWORD a = ReadAppOverride();
+        ApplyEffectiveOverride(ComputeEffective(g, a));
+
+        // periodic LastSeen updater (10s)
+        DWORD lastTick = GetTickCount();
+        const DWORD beatMs = 10000;
+
+        for (;;) {
+            HANDLE waitList[3] = { hEvtStop, hEvtGlobal, hEvtApp };
+            DWORD w = WaitForMultipleObjects(3, waitList, FALSE, 1000);
+            if (w == WAIT_OBJECT_0) break; // stop
+            else if (w == WAIT_OBJECT_0 + 1) {
+                // Global changed
+                ArmNotify(gGlobal, hEvtGlobal);
+                g = ReadGlobalOverride();
+                ApplyEffectiveOverride(ComputeEffective(g, a));
+            }
+            else if (w == WAIT_OBJECT_0 + 2) {
+                // App changed
+                ArmNotify(gApp, hEvtApp);
+                a = ReadAppOverride();
+                TouchLastSeen();
+                ApplyEffectiveOverride(ComputeEffective(g, a));
             }
             else {
-                float initialVolume = VolumePercentToFloat(nVolume); // Convert 0-100 to 0.0-1.0
-                AudioEngine::SetMasterVolume(initialVolume);
-                dprintf(L"Initial state: Unmuted. Set volume to %f. (PlayerMode=0x%X)", initialVolume, dwPlayerMode);
-            }
-
-            // Apply Initial Buffer Mode
-            AudioEngine::SetBufferMode(nBufferMode);
-            dprintf(L"Initial state: BufferMode=%d. (PlayerMode=0x%X)", nBufferMode, dwPlayerMode);
-
-            // Apply Initial Engine Mode
-            AudioEngine::SetEngineOverride(nEngineMode);
-            dprintf(L"Initial state: EngineMode=%d. (PlayerMode=0x%X)", nEngineMode, dwPlayerMode);
-
-
-            // Create Events and Start Monitor Thread (only if registry key is valid)
-            if (success) {
-                g_hQuitEvent = CreateEventW(NULL, TRUE, FALSE, NULL); // Manual reset
-                g_hRegChangeEvent = CreateEventW(NULL, FALSE, FALSE, NULL); // Auto reset
-                if (!g_hQuitEvent || !g_hRegChangeEvent) {
-                    dprintf(L"Failed to create events. Error: %d", GetLastError());
-                    success = false;
-                }
-                else {
-                    unsigned int threadId;
-                    g_hMonitorThread = (HANDLE)_beginthreadex(NULL, 0, MonitorThreadProc, NULL, 0, &threadId);
-                    if (!g_hMonitorThread) {
-                        dprintf(L"Failed to create monitor thread. Error: %d", GetLastError());
-                        success = false;
-                    }
-                    else {
-                        dprintf(L"Registry monitor thread started.");
-                    }
+                // timeout: heartbeat
+                DWORD now = GetTickCount();
+                if (now - lastTick >= beatMs) {
+                    TouchLastSeen();
+                    lastTick = now;
                 }
             }
         }
 
-        // Cleanup on failure
-        if (!success) {
-            if (g_hMonitorThread) { CloseHandle(g_hMonitorThread); g_hMonitorThread = NULL; }
-            if (g_hQuitEvent) { CloseHandle(g_hQuitEvent); g_hQuitEvent = NULL; }
-            if (g_hRegChangeEvent) { CloseHandle(g_hRegChangeEvent); g_hRegChangeEvent = NULL; }
-            if (g_hRegKey) { RegCloseKey(g_hRegKey); g_hRegKey = NULL; }
-        }
+        CloseHandle(hEvtGlobal);
+        CloseHandle(hEvtApp);
+        return 0;
+    }
+}
 
-        g_bInitialized = success;
-        Unlock();
-        return g_bInitialized;
+
+namespace PreferenceLoader {
+    
+    BOOL Initialize() {
+        if (gThread) return TRUE;
+
+        // exe full path
+        wchar_t path[MAX_PATH]; GetModuleFileNameW(NULL, path, MAX_PATH);
+        gExeFullPath = path;
+        // normalize to full path
+        wchar_t full[MAX_PATH]; GetFullPathNameW(path, MAX_PATH, full, NULL);
+        gExeFullPath = full;
+
+        gPid = GetCurrentProcessId();
+        gGuidKey = MakePseudoGuidFromPath(gExeFullPath);
+
+        if (!EnsureRootAndGlobal()) return FALSE;
+        if (!EnsureAppKey())       return FALSE;
+
+        // ensure WinmmVol.exe is launched if exists
+        LaunchWinmmVolIfExists();
+
+        // create stop event and thread
+        gStop = CreateEventW(NULL, TRUE, FALSE, NULL);
+        if (!gStop) return FALSE;
+
+        gThread = CreateThread(NULL, 0, WatcherThreadProc, NULL, 0, NULL);
+        return gThread != NULL;
     }
 
     void Shutdown() {
-        if (!g_bInitialized) return;
-
-        Lock();
-        if (!g_bInitialized) {
-            Unlock();
-            return;
+        // mark ProcessID invalid, update LastSeen, close WinmmVol.exe if launched/live
+        if (gApp) {
+            WriteDWORD(gApp, VAL_PID, 0);
+            WriteQWORD(gApp, VAL_LASTSEEN, NowFileTimeQword());
         }
 
-        dprintf(L"Shutting down PreferenceLoader...");
-
-        // Signal and wait for monitor thread
-        if (g_hQuitEvent) {
-            SetEvent(g_hQuitEvent);
-        }
-        if (g_hMonitorThread) {
-            WaitForSingleObject(g_hMonitorThread, 5000); // 5 sec timeout
-            CloseHandle(g_hMonitorThread);
-            g_hMonitorThread = NULL;
+        // stop thread
+        if (gStop) {
+            SetEvent(gStop);
+            WaitForSingleObject(gThread, 3000);
         }
 
-        // Close handles
-        if (g_hQuitEvent) { CloseHandle(g_hQuitEvent); g_hQuitEvent = NULL; }
-        if (g_hRegChangeEvent) { CloseHandle(g_hRegChangeEvent); g_hRegChangeEvent = NULL; }
-        if (g_hRegKey) { RegCloseKey(g_hRegKey); g_hRegKey = NULL; }
+        CloseWinmmVolIfLaunched();
 
-        if (g_hExeWnd && IsWindow(g_hExeWnd)) {
-            dprintf(L"Posting exit message (0x%X) to HWND 0x%p", WM_EXIT_APP, g_hExeWnd);
-            PostMessageW(g_hExeWnd, WM_EXIT_APP, 0, 0);
-        }
-        else {
-            HWND hwnd = FindExeWindow();
-            if (hwnd && IsWindow(hwnd)) {
-                dprintf(L"Posting exit message (0x%X) to newly found HWND 0x%p", WM_EXIT_APP, hwnd);
-                PostMessageW(hwnd, WM_EXIT_APP, 0, 0);
-            }
-            else {
-                dprintf(L"Could not find window for %s to send exit message.", EXE_NAME);
-            }
-        }
-        if (g_hExeProcess) {
-            CloseHandle(g_hExeProcess);
-            g_hExeProcess = NULL;
-        }
-
-        g_bInitialized = FALSE;
-        Unlock();
-
-        DeleteCriticalSection(&g_cs);
-        dprintf(L"PreferenceLoader shutdown complete.");
+        if (gThread) { CloseHandle(gThread); gThread = NULL; }
+        if (gStop) { CloseHandle(gStop);   gStop = NULL; }
+        if (gApp) { RegCloseKey(gApp);    gApp = NULL; }
+        if (gGlobal) { RegCloseKey(gGlobal); gGlobal = NULL; }
+        if (gRoot) { RegCloseKey(gRoot);   gRoot = NULL; }
     }
-
 } // namespace PreferenceLoader

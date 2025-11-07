@@ -1,6 +1,7 @@
 #include "TrayIcon.h"
 #include "resource.h"
 #include "RegistryManager.h"
+#include "VolumeSlider.h"
 #include "UiLang.h"
 #include <shellapi.h> // For Shell_NotifyIcon
 
@@ -15,71 +16,7 @@ namespace {
     static HICON s_iconLv2  = NULL;
     static HICON s_iconLv3  = NULL;
 
-    static BOOL gInited = FALSE;
-    static BOOL gVistaOrLater = FALSE;
-
-    typedef LONG(WINAPI* RtlGetVersion_t)(PRTL_OSVERSIONINFOW);
-    static BOOL IsVistaOrLater() {
-        if (gInited) return gVistaOrLater;
-        static int cached = -1;
-        if (cached != -1) return cached ? TRUE : FALSE;
-        HMODULE hNt = GetModuleHandleW(L"ntdll.dll");
-        if (hNt) {
-            RtlGetVersion_t p = (RtlGetVersion_t)GetProcAddress(hNt, "RtlGetVersion");
-            if (p) {
-                RTL_OSVERSIONINFOW vi = { sizeof(vi) };
-                if (p(&vi) == 0) {
-                    cached = (vi.dwMajorVersion >= 6) ? 1 : 0;
-                    gInited = TRUE;
-                    gVistaOrLater = cached ? TRUE : FALSE;
-                    return gVistaOrLater;
-                }
-            }
-        }
-        OSVERSIONINFOEXW os = { sizeof(os) }; GetVersionExW((OSVERSIONINFOW*)&os);
-        cached = (os.dwMajorVersion >= 6) ? 1 : 0;
-        gInited = TRUE;
-        gVistaOrLater = cached ? TRUE : FALSE;
-        return gVistaOrLater;
-    }
-
-    // Find the submenu item index that hosts a given submenu HMENU
-    static int FindSubmenuIndex(HMENU hRootPopup, HMENU hSubmenu) {
-        if (!hRootPopup || !hSubmenu) return -1;
-        const int count = GetMenuItemCount(hRootPopup);
-        for (int i = 0; i < count; ++i) {
-            if (GetSubMenu(hRootPopup, i) == hSubmenu) return i;
-        }
-        return -1;
-    }
-
-    // Robustly set submenu caption without deleting the item
-    static void SetSubmenuCaptionSafe(HMENU hRootPopup, HMENU hSubmenu, const wchar_t* newText) {
-        if (!hRootPopup || !hSubmenu || !newText) return;
-
-        int pos = FindSubmenuIndex(hRootPopup, hSubmenu);
-        if (pos < 0) return;
-
-        MENUITEMINFOW mii = {};
-        mii.cbSize = sizeof(mii);
-        // Keep submenu handle and type, just set caption as string
-        mii.fMask = MIIM_SUBMENU | MIIM_FTYPE | MIIM_STRING;
-        mii.fType = MFT_STRING;
-        mii.hSubMenu = hSubmenu;
-        mii.dwTypeData = const_cast<LPWSTR>(newText);
-        mii.cch = (UINT)lstrlenW(newText);
-        SetMenuItemInfoW(hRootPopup, pos, TRUE, &mii);
-    }
-
-    static HMENU FindAdvancedSubmenu(HMENU hRootPopup) {
-        if (!hRootPopup) return NULL;
-        const int count = GetMenuItemCount(hRootPopup);
-        for (int i = 0; i < count; ++i) {
-            HMENU h = GetSubMenu(hRootPopup, i);
-            if (h) return h;
-        }
-        return NULL;
-    }
+    static BOOL g_showAllApps = FALSE;
 
     static void LocalizeTrayMenu(HMENU hRootPopup) {
         if (!hRootPopup) return;
@@ -91,31 +28,12 @@ namespace {
             UILang::Get(L"MENU_USAGE", s));
         ModifyMenuW(hRootPopup, IDM_INFO_LICENSE, MF_BYCOMMAND | MF_STRING, IDM_INFO_LICENSE,
             UILang::Get(L"MENU_LICENSE", s));
+        ModifyMenuW(hRootPopup, IDM_MODE_CLEAR, MF_BYCOMMAND | MF_STRING, IDM_MODE_CLEAR,
+            UILang::Get(L"MENU_CLEAR", s));
+        ModifyMenuW(hRootPopup, IDM_SHOW_ALL_APPS, MF_BYCOMMAND | MF_STRING, IDM_SHOW_ALL_APPS,
+            UILang::Get(L"MENU_VIEWALL", s));
         ModifyMenuW(hRootPopup, IDM_EXIT, MF_BYCOMMAND | MF_STRING, IDM_EXIT,
             UILang::Get(L"MENU_EXIT", s));
-
-        // Localize submenu items
-        ModifyMenuW(hRootPopup, IDM_MODE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_MODE_AUTO,
-            UILang::Get(L"MENU_ADVANCED_BUFFER_AUTO", s));
-        ModifyMenuW(hRootPopup, IDM_MODE_STREAMING, MF_BYCOMMAND | MF_STRING, IDM_MODE_STREAMING,
-            UILang::Get(L"MENU_ADVANCED_STREAMING", s));
-        ModifyMenuW(hRootPopup, IDM_MODE_FULLBUFFER, MF_BYCOMMAND | MF_STRING, IDM_MODE_FULLBUFFER,
-            UILang::Get(L"MENU_ADVANCED_FULLBUFFER", s));
-        ModifyMenuW(hRootPopup, IDM_MODE_RESAMPLE, MF_BYCOMMAND | MF_STRING, IDM_MODE_RESAMPLE,
-            UILang::Get(L"MENU_ADVANCED_RESAMPLE", s));
-
-        ModifyMenuW(hRootPopup, IDM_ENGINE_AUTO, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_AUTO,
-            UILang::Get(L"MENU_ADVANCED_ENGINE_AUTO", s));
-        ModifyMenuW(hRootPopup, IDM_ENGINE_DS, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_DS,
-            UILang::Get(L"MENU_ADVANCED_DS", s));
-        ModifyMenuW(hRootPopup, IDM_ENGINE_WASAPI, MF_BYCOMMAND | MF_STRING, IDM_ENGINE_WASAPI,
-            UILang::Get(L"MENU_ADVANCED_WASAPI", s));
-
-        // Localize Advanced submenu
-        HMENU hAdvanced = FindAdvancedSubmenu(hRootPopup);
-        if (hAdvanced) {
-            SetSubmenuCaptionSafe(hRootPopup, hAdvanced, UILang::Get(L"MENU_ADVANCED", s));
-        }
     }
 
     // Load icon helper
@@ -133,21 +51,6 @@ namespace {
         if (percent <= 32)          return s_iconLv1 ? s_iconLv1 : nid.hIcon;
         if (percent <= 65)          return s_iconLv2 ? s_iconLv2 : nid.hIcon;
         return s_iconLv3 ? s_iconLv3 : nid.hIcon;
-    }
-
-    static void LockEngineMenuOnXP(HMENU hAdvanced) {
-        if (!hAdvanced) return;
-        if (IsVistaOrLater()) return; // Vista+ : do nothing
-
-        // Disable DS and WASAPI; leave only AUTO available
-        EnableMenuItem(hAdvanced, IDM_ENGINE_DS, MF_BYCOMMAND | MF_GRAYED);
-        EnableMenuItem(hAdvanced, IDM_ENGINE_WASAPI, MF_BYCOMMAND | MF_GRAYED);
-
-        // Force radio check to AUTO (safest even if already set)
-        CheckMenuRadioItem(hAdvanced,
-            IDM_ENGINE_AUTO, IDM_ENGINE_WASAPI, // group range
-            IDM_ENGINE_AUTO,
-            MF_BYCOMMAND);
     }
 }
 
@@ -185,16 +88,25 @@ namespace TrayIcon {
     }
 
     BOOL Destroy(HWND hOwnerWnd) {
-        nid.hWnd = hOwnerWnd; nid.uID = TRAY_ICON_ID;
+        nid.hWnd = hOwnerWnd;
+        nid.uID = TRAY_ICON_ID;
+        if (RegistryManager::IsVistaOrLater()) {
+            nid.cbSize = sizeof(nid);
+        }
+        else {
+            nid.cbSize = NOTIFYICONDATA_V2_SIZE;
+        }
         BOOL ok = Shell_NotifyIconW(NIM_DELETE, &nid);
         return ok;
     }
 
     void RefreshFromRegistry() {
-        BOOL isMute = RegistryManager::GetMute();
-        int percent = RegistryManager::GetVolumePercent();
-        HICON hNew = ChooseIcon(isMute, percent);
+        const DWORD ov = RegistryManager::GetGlobalOverride();
 
+        const BOOL isMute = RegistryManager::OV_GetMute(ov);
+        const int  percent = RegistryManager::OV_GetVolume(ov);
+
+        HICON hNew = ChooseIcon(isMute, percent);
         if (hNew) {
             nid.uFlags = NIF_ICON;
             nid.hIcon = hNew;
@@ -214,45 +126,8 @@ namespace TrayIcon {
 
         LocalizeTrayMenu(hSubMenu);
 
-        // Dynamically check the correct radio item
-        HMENU hAdvancedMenu = FindAdvancedSubmenu(hSubMenu);
-
-        // --- (Group 1) Set radio check for Buffer Mode ---
-        int bufferMode = RegistryManager::GetBufferMode(); // Gets 0, 1, or 2
-        UINT bufferItemToCheck = IDM_MODE_AUTO; // Default to Auto
-        if (bufferMode == 1) {
-            bufferItemToCheck = IDM_MODE_STREAMING;
-        }
-        else if (bufferMode == 2) {
-            bufferItemToCheck = IDM_MODE_FULLBUFFER;
-        }
-        else if (bufferMode == 3) {
-            bufferItemToCheck = IDM_MODE_RESAMPLE;
-        }
-
-        CheckMenuRadioItem(hAdvancedMenu,   // Menu handle
-            IDM_MODE_AUTO,                  // First item in group
-            IDM_MODE_RESAMPLE,              // Last item in group
-            bufferItemToCheck,              // Item to check
-            MF_BYCOMMAND);                  // Find items by ID
-
-        // --- (Group 2) Set radio check for Engine Mode ---
-        int engineMode = RegistryManager::GetEngineMode(); // Get 0, 1, or 2
-        UINT itemToCheck = IDM_ENGINE_AUTO;
-        if (engineMode == 1) {
-            itemToCheck = IDM_ENGINE_DS;
-        }
-        else if (engineMode == 2) {
-            itemToCheck = IDM_ENGINE_WASAPI;
-        }
-
-        CheckMenuRadioItem(hAdvancedMenu,   // Menu handle
-            IDM_ENGINE_AUTO,                // First item in group
-            IDM_ENGINE_WASAPI,              // Last item in group
-            itemToCheck,                    // Item to check
-            MF_BYCOMMAND);                  // Find items by ID
-
-        LockEngineMenuOnXP(hAdvancedMenu);
+        CheckMenuItem(hSubMenu, IDM_SHOW_ALL_APPS,
+            MF_BYCOMMAND | (g_showAllApps ? MF_CHECKED : MF_UNCHECKED));
 
         POINT pt;
         GetCursorPos(&pt);
@@ -266,10 +141,20 @@ namespace TrayIcon {
             pt.x, pt.y,
             0, hOwnerWnd, NULL);
 
+
         // Post a dummy message to ensure focus returns correctly after menu closes (WinXP fix)
-        PostMessage(hOwnerWnd, WM_NULL, 0, 0);
+        PostMessageW(hOwnerWnd, WM_NULL, 0, 0);
 
         DestroyMenu(hMenu);
+    }
+
+    void SetShowAllApps(BOOL enable) {
+        g_showAllApps = enable ? TRUE : FALSE;
+        VolumeSlider::SetShowAllApps(g_showAllApps);
+    }
+
+    BOOL GetShowAllApps() {
+        return g_showAllApps;
     }
 
 } // namespace TrayIcon

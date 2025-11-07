@@ -1,157 +1,349 @@
 #include "RegistryManager.h"
-
-// --- Configuration (from DLL context) ---
-const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs";
-const wchar_t* const PLAYER_MODE_VALUE_NAME = L"PlayerMode";
-
-// --- PlayerMode Bitmask Definitions ---
-// DWORD (32-bit) layout:
-// [31-12] Reserved (20 bits)
-// [11-10] Engine Mode (2 bits: 00=Auto, 01=DS, 10=WASAPI)
-// [9-8]   Buffer Mode (2 bits: 00=Auto, 01=Streaming, 10=FullBuffer)
-// [7]     Mute State (1 bit: 0=Unmuted, 1=Muted)
-// [6-0]   Volume (7 bits: 0-100)
-
-// Volume (7 bits)
-const DWORD PM_VOL_SHIFT = 0;
-const DWORD PM_VOL_MASK = 0x7F << PM_VOL_SHIFT; // 0x7F (0b1111111) for 7 bits
-
-// Mute (1 bit)
-const DWORD PM_MUTE_SHIFT = 7;
-const DWORD PM_MUTE_MASK = 1 << PM_MUTE_SHIFT;
-
-// Buffer Mode (2 bits)
-const DWORD PM_BUFFER_SHIFT = 8;
-const DWORD PM_BUFFER_MASK = 3 << PM_BUFFER_SHIFT; // 3 (0b11) for 2 bits
-
-// Engine Mode (2 bits)
-const DWORD PM_ENGINE_SHIFT = 10;
-const DWORD PM_ENGINE_MASK = 3 << PM_ENGINE_SHIFT; // 3 (0b11) for 2 bits
-
-// Default value: Volume=100 (0x64), Mute=0, Buffer=0, Engine=0
-const DWORD DEFAULT_PLAYER_MODE_DWORD = 0x00000064;
-
+#include <algorithm>
 
 namespace {
-    HKEY g_hRegKey = NULL;
-}
+    // Registry paths/values
+    const wchar_t* const REGISTRY_PATH = L"Software\\WinmmStubs";
+    const wchar_t* const SUBKEY_GLOBAL = L"Global";
+    const wchar_t* const VAL_OVERRIDE = L"Override";
+    const wchar_t* const VAL_EXE = L"";            // default value "@" (REG_SZ)
+    const wchar_t* const VAL_PID = L"ProcessID";   // REG_DWORD
+    const wchar_t* const VAL_LASTSEEN = L"LastSeen";    // REG_QWORD
+
+    HKEY gRoot = NULL;
+
+    inline ULONGLONG NowFileTimeQword() {
+        FILETIME ft; ::GetSystemTimeAsFileTime(&ft);
+        ULARGE_INTEGER u; u.LowPart = ft.dwLowDateTime; u.HighPart = ft.dwHighDateTime;
+        return u.QuadPart;
+    }
+
+    inline bool ReadDWORD(HKEY h, LPCWSTR name, DWORD& out) {
+        DWORD type = 0, cb = sizeof(out);
+        if (RegQueryValueExW(h, name, NULL, &type, (LPBYTE)&out, &cb) == ERROR_SUCCESS && type == REG_DWORD) return true;
+        return false;
+    }
+    inline bool ReadQWORD(HKEY h, LPCWSTR name, ULONGLONG& out) {
+        DWORD type = 0, cb = sizeof(out);
+        if (RegQueryValueExW(h, name, NULL, &type, (LPBYTE)&out, &cb) == ERROR_SUCCESS && type == REG_QWORD) return true;
+        return false;
+    }
+    inline bool ReadSZ(HKEY h, LPCWSTR name, std::wstring& out) {
+        DWORD type = 0, cb = 0;
+        if (RegQueryValueExW(h, name, NULL, &type, NULL, &cb) != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ)) return false;
+        std::wstring buf; buf.resize(cb / sizeof(wchar_t));
+        if (RegQueryValueExW(h, name, NULL, &type, (LPBYTE)buf.data(), &cb) != ERROR_SUCCESS) return false;
+        if (!buf.empty() && buf.back() == L'\0') buf.pop_back();
+        out.swap(buf); return true;
+    }
+    inline bool WriteDWORD(HKEY h, LPCWSTR name, DWORD v) {
+        return RegSetValueExW(h, name, 0, REG_DWORD, (const BYTE*)&v, sizeof(v)) == ERROR_SUCCESS;
+    }
+    inline bool WriteQWORD(HKEY h, LPCWSTR name, ULONGLONG v) {
+        return RegSetValueExW(h, name, 0, REG_QWORD, (const BYTE*)&v, sizeof(v)) == ERROR_SUCCESS;
+    }
+    inline bool WriteSZ(HKEY h, LPCWSTR name, const std::wstring& v) {
+        DWORD cb = (DWORD)((v.size() + 1) * sizeof(wchar_t));
+        return RegSetValueExW(h, name, 0, REG_SZ, (const BYTE*)v.c_str(), cb) == ERROR_SUCCESS;
+    }
+    inline bool OpenSub(HKEY parent, LPCWSTR sub, REGSAM sam, HKEY& out, bool createIfMissing) {
+        out = NULL;
+        if (createIfMissing) {
+            return RegCreateKeyExW(parent, sub, 0, NULL, REG_OPTION_NON_VOLATILE, sam, NULL, &out, NULL) == ERROR_SUCCESS;
+        }
+        return RegOpenKeyExW(parent, sub, 0, sam, &out) == ERROR_SUCCESS;
+    }
+
+    inline bool IsProcessAlive(DWORD pid) {
+        if (!pid) return false;
+        HANDLE h = ::OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+        if (!h) return false;
+        DWORD code = 0; BOOL ok = ::GetExitCodeProcess(h, &code);
+        CloseHandle(h);
+        return ok && code == STILL_ACTIVE;
+    }
+
+} // anon
 
 namespace RegistryManager {
 
     BOOL Initialize() {
-        if (g_hRegKey) return TRUE; // Already initialized
-
-        LSTATUS status = RegCreateKeyExW(HKEY_CURRENT_USER,
-            REGISTRY_PATH,
-            0, NULL, REG_OPTION_NON_VOLATILE,
-            KEY_READ | KEY_WRITE,
-            NULL, &g_hRegKey, NULL);
-
-        if (status != ERROR_SUCCESS) {
-            g_hRegKey = NULL;
-            return FALSE;
+        if (gRoot) return TRUE;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, REGISTRY_PATH, 0, NULL,
+            REG_OPTION_NON_VOLATILE, KEY_READ | KEY_WRITE, NULL, &gRoot, NULL) != ERROR_SUCCESS) {
+            gRoot = NULL; return FALSE;
         }
-
-        // Ensure the consolidated PlayerMode value exists
-        DWORD dwPlayerMode;
-        DWORD dwSize = sizeof(dwPlayerMode);
-        DWORD dwType;
-        status = RegQueryValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwPlayerMode, &dwSize);
-
-        if (status == ERROR_FILE_NOT_FOUND) {
-            // Not found, create with default
-            dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
-            RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwPlayerMode, sizeof(dwPlayerMode));
+        // Ensure Global\Override exists
+        HKEY hGlobal = NULL;
+        if (OpenSub(gRoot, SUBKEY_GLOBAL, KEY_READ | KEY_WRITE, hGlobal, true)) {
+            DWORD ov = 0; DWORD type = 0, cb = sizeof(ov);
+            if (RegQueryValueExW(hGlobal, VAL_OVERRIDE, NULL, &type, (LPBYTE)&ov, &cb) != ERROR_SUCCESS || type != REG_DWORD) {
+                ov = OV_DEFAULT;
+                WriteDWORD(hGlobal, VAL_OVERRIDE, ov);
+            }
+            RegCloseKey(hGlobal);
         }
-        else if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
-            // Error or wrong type, overwrite
-            dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
-            RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&dwPlayerMode, sizeof(dwPlayerMode));
-        }
-
+        IsVistaOrLater();
         return TRUE;
     }
 
     void Close() {
-        if (g_hRegKey) {
-            RegCloseKey(g_hRegKey);
-            g_hRegKey = NULL;
+        if (gRoot) { RegCloseKey(gRoot); gRoot = NULL; }
+    }
+
+    BOOL IsVistaOrLater() {
+        static int cached = -1;
+        if (cached != -1) return cached ? TRUE : FALSE;
+
+        HMODULE hNt = GetModuleHandleW(L"ntdll.dll");
+        if (hNt) {
+            typedef LONG(WINAPI* RtlGetVersion_t)(PRTL_OSVERSIONINFOW);
+            RtlGetVersion_t p = (RtlGetVersion_t)GetProcAddress(hNt, "RtlGetVersion");
+            if (p) {
+                RTL_OSVERSIONINFOW vi = { sizeof(vi) };
+                if (p(&vi) == 0) { cached = (vi.dwMajorVersion >= 6) ? 1 : 0; return cached ? TRUE : FALSE; }
+            }
+        }
+        OSVERSIONINFOEXW os = { sizeof(os) }; GetVersionExW((OSVERSIONINFOW*)&os);
+        cached = (os.dwMajorVersion >= 6) ? 1 : 0;
+        return cached ? TRUE : FALSE;
+    }
+
+    // Global -------------------------------------------------------------------
+
+    DWORD GetGlobalOverride() {
+        if (!gRoot) return OV_DEFAULT;
+        HKEY hGlobal = NULL;
+        if (!OpenSub(gRoot, SUBKEY_GLOBAL, KEY_READ, hGlobal, false)) return OV_DEFAULT;
+        DWORD ov = OV_DEFAULT, type = 0, cb = sizeof(ov);
+        if (RegQueryValueExW(hGlobal, VAL_OVERRIDE, NULL, &type, (LPBYTE)&ov, &cb) != ERROR_SUCCESS || type != REG_DWORD)
+            ov = OV_DEFAULT;
+        RegCloseKey(hGlobal);
+        return ov;
+    }
+
+    BOOL SetGlobalOverride(DWORD ov) {
+        if (!gRoot) return FALSE;
+        HKEY hGlobal = NULL;
+        if (!OpenSub(gRoot, SUBKEY_GLOBAL, KEY_READ | KEY_WRITE, hGlobal, true)) return FALSE;
+        BOOL ok = WriteDWORD(hGlobal, VAL_OVERRIDE, ov);
+        RegCloseKey(hGlobal);
+        return ok;
+    }
+
+    // Apps ---------------------------------------------------------------------
+
+    BOOL GetAppOverride(const std::wstring& guid, DWORD& ov) {
+        ov = OV_DEFAULT;
+        if (!gRoot || guid.empty()) return FALSE;
+        HKEY hApp = NULL;
+        if (!OpenSub(gRoot, guid.c_str(), KEY_READ, hApp, false)) return FALSE;
+        DWORD type = 0, cb = sizeof(ov);
+        if (RegQueryValueExW(hApp, VAL_OVERRIDE, NULL, &type, (LPBYTE)&ov, &cb) != ERROR_SUCCESS || type != REG_DWORD)
+            ov = OV_DEFAULT;
+        RegCloseKey(hApp);
+        return TRUE;
+    }
+
+    BOOL SetAppOverride(const std::wstring& guid, DWORD ov) {
+        if (!gRoot || guid.empty()) return FALSE;
+        HKEY hApp = NULL;
+        if (!OpenSub(gRoot, guid.c_str(), KEY_READ | KEY_WRITE, hApp, true)) return FALSE;
+        BOOL ok = WriteDWORD(hApp, VAL_OVERRIDE, ov);
+        WriteQWORD(hApp, VAL_LASTSEEN, NowFileTimeQword());
+        RegCloseKey(hApp);
+        return ok;
+    }
+
+    BOOL ResetAllSettings() {
+        if (!gRoot) return FALSE;
+
+        // delete non-live app keys
+        {
+            DWORD idx = 0; wchar_t name[256]; DWORD cch; FILETIME ft = {};
+            for (;;) {
+                cch = _countof(name);
+                LONG r = RegEnumKeyExW(gRoot, idx, name, &cch, NULL, NULL, NULL, &ft);
+                if (r == ERROR_NO_MORE_ITEMS) break;
+                if (r != ERROR_SUCCESS) { ++idx; continue; }
+                if (lstrcmpiW(name, SUBKEY_GLOBAL) == 0) { ++idx; continue; }
+
+                // read PID
+                HKEY hApp = NULL;
+                if (RegOpenKeyExW(gRoot, name, 0, KEY_READ, &hApp) == ERROR_SUCCESS) {
+                    DWORD pid = 0, type = 0, cb = sizeof(pid);
+                    RegQueryValueExW(hApp, VAL_PID, NULL, &type, (LPBYTE)&pid, &cb);
+                    RegCloseKey(hApp);
+
+                    if (!IsProcessAlive(pid)) {
+                        // not live -> delete subkey
+                        RegDeleteKeyW(gRoot, name); // keys contain only values; no subkeys expected
+                        // do not ++idx here (current index now points to next item)
+                        continue;
+                    }
+                }
+                ++idx;
+            }
+        }
+
+        // reset Global\Override
+        if (!SetGlobalOverride(OV_DEFAULT)) return FALSE;
+
+        // reset Override of live apps
+        {
+            DWORD idx = 0; wchar_t name[256]; DWORD cch; FILETIME ft = {};
+            for (;;) {
+                cch = _countof(name);
+                LONG r = RegEnumKeyExW(gRoot, idx++, name, &cch, NULL, NULL, NULL, &ft);
+                if (r == ERROR_NO_MORE_ITEMS) break;
+                if (r != ERROR_SUCCESS) continue;
+                if (lstrcmpiW(name, SUBKEY_GLOBAL) == 0) continue;
+
+                HKEY hApp = NULL;
+                if (RegOpenKeyExW(gRoot, name, 0, KEY_READ | KEY_WRITE, &hApp) != ERROR_SUCCESS) continue;
+
+                // live check again (race-safe)
+                DWORD pid = 0, type = 0, cb = sizeof(pid);
+                RegQueryValueExW(hApp, VAL_PID, NULL, &type, (LPBYTE)&pid, &cb);
+                if (IsProcessAlive(pid)) {
+                    // reset override + last seen update
+                    RegSetValueExW(hApp, VAL_OVERRIDE, 0, REG_DWORD, (const BYTE*)&OV_DEFAULT, sizeof(OV_DEFAULT));
+                    ULONGLONG now;
+                    {
+                        FILETIME ftNow; GetSystemTimeAsFileTime(&ftNow);
+                        ULARGE_INTEGER u; u.LowPart = ftNow.dwLowDateTime; u.HighPart = ftNow.dwHighDateTime; now = u.QuadPart;
+                    }
+                    RegSetValueExW(hApp, VAL_LASTSEEN, 0, REG_QWORD, (const BYTE*)&now, sizeof(now));
+                }
+                RegCloseKey(hApp);
+            }
+        }
+        return TRUE;
+    }
+
+    BOOL TouchAppKey(const std::wstring& guid, const std::wstring& exeFullPath, DWORD pid) {
+        if (!gRoot || guid.empty()) return FALSE;
+        HKEY hApp = NULL;
+        if (!OpenSub(gRoot, guid.c_str(), KEY_READ | KEY_WRITE, hApp, true)) return FALSE;
+
+        // @ (exe path)
+        std::wstring cur;
+        if (!ReadSZ(hApp, VAL_EXE, cur) || cur != exeFullPath)
+            WriteSZ(hApp, VAL_EXE, exeFullPath);
+
+        // ProcessID
+        DWORD curPid = 0;
+        if (!ReadDWORD(hApp, VAL_PID, curPid) || curPid != pid)
+            WriteDWORD(hApp, VAL_PID, pid);
+
+        // Override default
+        DWORD ov = 0, type = 0, cb = sizeof(ov);
+        if (RegQueryValueExW(hApp, VAL_OVERRIDE, NULL, &type, (LPBYTE)&ov, &cb) != ERROR_SUCCESS || type != REG_DWORD)
+            WriteDWORD(hApp, VAL_OVERRIDE, OV_DEFAULT);
+
+        // LastSeen
+        WriteQWORD(hApp, VAL_LASTSEEN, NowFileTimeQword());
+
+        RegCloseKey(hApp);
+        return TRUE;
+    }
+
+    void SweepAndInvalidateDeadPids() {
+        if (!gRoot) return;
+        DWORD idx = 0; wchar_t name[256]; DWORD cch = 256; FILETIME ft = {};
+        while (true) {
+            cch = _countof(name);
+            LONG r = RegEnumKeyExW(gRoot, idx++, name, &cch, NULL, NULL, NULL, &ft);
+            if (r == ERROR_NO_MORE_ITEMS) break;
+            if (r != ERROR_SUCCESS) continue;
+            if (lstrcmpiW(name, SUBKEY_GLOBAL) == 0) continue; // skip Global
+
+            HKEY hApp = NULL;
+            if (RegOpenKeyExW(gRoot, name, 0, KEY_READ | KEY_WRITE, &hApp) != ERROR_SUCCESS) continue;
+
+            DWORD pid = 0;
+            ReadDWORD(hApp, VAL_PID, pid);
+            if (!IsProcessAlive(pid)) {
+                WriteDWORD(hApp, VAL_PID, 0); // mark as invalid
+                // still keep it; GC can remove later
+            }
+            RegCloseKey(hApp);
         }
     }
 
-    // --- Raw DWORD Access ---
-    DWORD GetPlayerMode() {
-        if (!g_hRegKey) return DEFAULT_PLAYER_MODE_DWORD;
+    BOOL EnumApps(std::vector<AppEntry>& out, BOOL onlyLive) {
+        out.clear();
+        if (!gRoot) return FALSE;
 
-        DWORD dwPlayerMode = DEFAULT_PLAYER_MODE_DWORD;
-        DWORD dwSize = sizeof(dwPlayerMode);
-        DWORD dwType;
-        LSTATUS status = RegQueryValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, NULL, &dwType, (LPBYTE)&dwPlayerMode, &dwSize);
+        DWORD idx = 0; wchar_t name[256]; DWORD cch = 256; FILETIME ft = {};
+        while (true) {
+            cch = _countof(name);
+            LONG r = RegEnumKeyExW(gRoot, idx++, name, &cch, NULL, NULL, NULL, &ft);
+            if (r == ERROR_NO_MORE_ITEMS) break;
+            if (r != ERROR_SUCCESS) continue;
+            if (lstrcmpiW(name, SUBKEY_GLOBAL) == 0) continue;
 
-        if (status != ERROR_SUCCESS || dwType != REG_DWORD) {
-            return DEFAULT_PLAYER_MODE_DWORD; // Return default on error
+            HKEY hApp = NULL;
+            if (RegOpenKeyExW(gRoot, name, 0, KEY_READ, &hApp) != ERROR_SUCCESS) continue;
+
+            AppEntry e; e.guid = name;
+            ReadSZ(hApp, VAL_EXE, e.exePath);
+            DWORD pid = 0; ReadDWORD(hApp, VAL_PID, pid); e.pid = pid;
+            e.live = IsProcessAlive(pid) ? TRUE : FALSE;
+            ULONGLONG ls = 0; ReadQWORD(hApp, VAL_LASTSEEN, ls); e.lastSeen = ls;
+
+            RegCloseKey(hApp);
+
+            if (onlyLive && !e.live) continue;
+            out.push_back(e);
         }
-        return dwPlayerMode;
+        return TRUE;
     }
 
-    BOOL SetPlayerMode(DWORD mode) {
-        if (!g_hRegKey) return FALSE;
+    void GarbageCollectIfExceed(size_t maxCount) {
+        if (!gRoot || maxCount == 0) return;
 
-        LSTATUS status = RegSetValueExW(g_hRegKey, PLAYER_MODE_VALUE_NAME, 0, REG_DWORD, (const BYTE*)&mode, sizeof(mode));
-        return (status == ERROR_SUCCESS);
+        // Gather all non-Global keys
+        std::vector<AppEntry> apps;
+        EnumApps(apps, FALSE);
+        if (apps.size() <= maxCount) return;
+
+        // Sort by LastSeen ascending (oldest first)
+        std::sort(apps.begin(), apps.end(),
+            [](const AppEntry& a, const AppEntry& b) { return a.lastSeen < b.lastSeen; });
+
+        size_t toDelete = apps.size() - maxCount;
+        for (size_t i = 0; i < toDelete; ++i) {
+            RegDeleteKeyW(gRoot, apps[i].guid.c_str()); // ignore error
+        }
     }
 
-    // --- Bitmask Helper Implementations ---
+    // Effective -----------------------------------------------------------------
 
-    BOOL GetMute() {
-        return (GetPlayerMode() & PM_MUTE_MASK) != 0;
-    }
+    DWORD ComputeEffective(const std::wstring& guid) {
+        const DWORD g = GetGlobalOverride();
 
-    BOOL SetMute(BOOL isMute) {
-        DWORD mode = GetPlayerMode();
-        DWORD dwMute = isMute ? 1 : 0;
-        mode = (mode & ~PM_MUTE_MASK) | (dwMute << PM_MUTE_SHIFT);
-        return SetPlayerMode(mode);
-    }
+        if (guid.empty()) return g;
 
-    int GetBufferMode() {
-        return (int)((GetPlayerMode() & PM_BUFFER_MASK) >> PM_BUFFER_SHIFT);
-    }
+        DWORD a = OV_DEFAULT;
+        if (!GetAppOverride(guid, a)) a = OV_DEFAULT;
 
-    BOOL SetBufferMode(int bufferMode) {
-        if (bufferMode < 0 || bufferMode > 3) bufferMode = 0; // Clamp to 2 bits (0-3)
-        DWORD mode = GetPlayerMode();
-        DWORD dwBufferMode = (DWORD)bufferMode;
-        mode = (mode & ~PM_BUFFER_MASK) | (dwBufferMode << PM_BUFFER_SHIFT);
-        return SetPlayerMode(mode);
-    }
+        // Engine: app if not Auto else global
+        int eng = OV_GetEngine(a); if (eng == 0) eng = OV_GetEngine(g);
+        // Buffer: app if not Auto else global
+        int buf = OV_GetBuffer(a); if (buf == 0) buf = OV_GetBuffer(g);
+        // Mute: either
+        BOOL mt = OV_GetMute(g) || OV_GetMute(a);
+        // Volume: product
+        int vg = OV_GetVolume(g); int va = OV_GetVolume(a);
+        int ve = (vg * va + 50) / 100; // round
 
-    int GetEngineMode() {
-        return (int)((GetPlayerMode() & PM_ENGINE_MASK) >> PM_ENGINE_SHIFT);
-    }
-
-    BOOL SetEngineMode(int engineMode) {
-        if (engineMode < 0 || engineMode > 3) engineMode = 0; // Clamp to 2 bits (0-3)
-        DWORD mode = GetPlayerMode();
-        DWORD dwEngineMode = (DWORD)engineMode;
-        mode = (mode & ~PM_ENGINE_MASK) | (dwEngineMode << PM_ENGINE_SHIFT);
-        return SetPlayerMode(mode);
-    }
-
-    // --- Percentage Helpers ---
-
-    int GetVolumePercent() {
-        return (int)((GetPlayerMode() & PM_VOL_MASK) >> PM_VOL_SHIFT);
-    }
-
-    BOOL SetVolumePercent(int percent) {
-        if ((DWORD)percent <= 0) percent = 0;
-        else if ((DWORD)percent >= 100) percent = 100; // Clamp to 0-100 (fits in 7 bits)
-
-        DWORD mode = GetPlayerMode();
-        DWORD dwVolume = percent;
-        mode = (mode & ~PM_VOL_MASK) | (dwVolume << PM_VOL_SHIFT);
-        return SetPlayerMode(mode);
+        DWORD eff = 0;
+        eff = OV_WithEngine(eff, eng);
+        eff = OV_WithBuffer(eff, buf);
+        eff = OV_WithMute(eff, mt);
+        eff = OV_WithVolume(eff, ve);
+        return eff;
     }
 
 } // namespace RegistryManager

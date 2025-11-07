@@ -18,43 +18,45 @@
 
 // Tray Menu Commands
 #define IDM_EXIT                1001 // Exit menu item ID
-#define IDM_ADVANCED            1002 // Advanced popup menu item ID
-
-// Engine Mode Menu IDs
-#define IDM_MODE_AUTO           1003 // Buffer: Auto-detect
-#define IDM_MODE_STREAMING      1004 // Buffer: Streaming
-#define IDM_MODE_FULLBUFFER     1005 // Buffer: Full Buffer
-#define IDM_MODE_RESAMPLE       1006 // Buffer: Full Buffer + Resampling
-
-// Engine Mode Menu IDs
-#define IDM_ENGINE_AUTO         1007 // Engine: Auto-detect
-#define IDM_ENGINE_DS           1008 // Engine: Force DirectSound
-#define IDM_ENGINE_WASAPI       1009 // Engine: Force WASAPI
-
-// Info Dialog
-#define IDM_INFO_USAGE          1101
-#define IDM_INFO_LICENSE        1102
+#define IDM_SHOW_ALL_APPS       1002 // View All Apps mode menu item ID
+#define IDM_MODE_CLEAR          1003 // Reset all settings mode menu item ID
+#define IDM_INFO_USAGE          1004 // Info Usage Dialog menu item ID
+#define IDM_INFO_LICENSE        1005 // Info OSL Dialog menu item ID
 
 // Volume Slider Controls
-#define IDC_VOLUMESLIDER        2001 // Trackbar control ID
-#define IDC_VOLUMETEXT          2002 // Static text for percentage ID
-#define IDC_VOLUMEICON          2003 // Static control for volume icon
-#define IDC_VOLUMETITLE         2004 // Static text for the title
+#define IDC_APP_COMBO           2000
+#define IDC_VOLUMESLIDER        2001
+#define IDC_VOLUMETEXT          2002
+#define IDC_VOLUMEICON          2003
+#define IDC_VOLUMETITLE         2004
+#define IDC_ENGINE_COMBO        2005
+#define IDC_BUFFER_COMBO        2006
+#define IDC_LABEL_APP           2007
+#define IDC_LABEL_VOLUME        2008
+#define IDC_LABEL_ENGINE        2009
+#define IDC_LABEL_BUFFER        2010
+#define IDC_ENGINE_AUTO         2011
+#define IDC_ENGINE_DS           2012
+#define IDC_ENGINE_WASAPI       2013
+#define IDC_MODE_AUTO           2014
+#define IDC_MODE_STREAMING      2015
+#define IDC_MODE_FULLBUFFER     2016
+#define IDC_MODE_RESAMPLE       2017
 
 // About Dialog IDs
 #define IDD_ABOUT               3000
 
-// RCDATA Resource IDs
-#define IDR_USAGE_EN            3101 // en-US\Usage-en.txt
-#define IDR_USAGE_KO            3102 // ko-KR\Usage-ko.txt
-
-// Example full license text (UTF-16)
-#define IDR_LICENSE_MINIMP3     3201 // License\minimp3.txt
-#define IDR_LICENSE_LIBOGG      3202 // License\libogg.txt
-#define IDR_LICENSE_LIBVORBIS   3203 // License\libvorbis.txt
-#define IDR_LICENSE_LIBFLAC     3204 // License\libflac.txt
-#define IDR_LICENSE_LIBSAMP     3205 // License\libsamplerate.txt
-
 // UILang packs (UTF-16 key=value)
 #define IDR_UILANG_EN           9001 // en-US\Ui-en.txt
 #define IDR_UILANG_KO           9002 // ko-KR\Ui-ko.txt
+
+// RCDATA Resource IDs
+#define IDR_USAGE_EN            9101 // en-US\Usage-en.txt
+#define IDR_USAGE_KO            9102 // ko-KR\Usage-ko.txt
+
+// Example full license text (UTF-16)
+#define IDR_LICENSE_MINIMP3     9201 // License\minimp3.txt
+#define IDR_LICENSE_LIBOGG      9202 // License\libogg.txt
+#define IDR_LICENSE_LIBVORBIS   9203 // License\libvorbis.txt
+#define IDR_LICENSE_LIBFLAC     9204 // License\libflac.txt
+#define IDR_LICENSE_LIBSAMP     9205 // License\libsamplerate.txt
