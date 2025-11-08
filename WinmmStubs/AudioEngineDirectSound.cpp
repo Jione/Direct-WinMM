@@ -15,7 +15,7 @@ static inline LONG VolumeFloatToDsDb(float vol01) {
     if (vol01 <= 0.00001f) return DSBVOLUME_MIN; // -10000 (prevents log10(0))
     if (vol01 >= 0.99999f) return 0;
 
-    LONG dsdb = (LONG)(1000.0f * log10f(vol01));
+    LONG dsdb = (LONG)(1000.0f * log10f(vol01 * vol01));
 
     return ClampLONG(dsdb, DSBVOLUME_MIN, 0);
 }
@@ -546,7 +546,6 @@ void DSoundAudioEngine::SetVolume(float masterVol) {
             dsvol = DSBVOLUME_MIN;
         }
 
-        if (primary) primary->SetVolume(dsvol); // Primary usually reflects master
         if (secondary) secondary->SetVolume(dsvol);
     }
 }
