@@ -47,6 +47,7 @@ namespace RegistryManager {
     // Environment --------------------------------------------------------------
 
     BOOL IsVistaOrLater();     // Vista+ == TRUE, XP == FALSE
+    BOOL HasAnyLiveApp();      // TRUE if there is at least one live app
 
     // Global override -----------------------------------------------------------
 

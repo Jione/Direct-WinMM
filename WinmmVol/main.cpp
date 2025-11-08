@@ -22,9 +22,12 @@ const wchar_t* const MAIN_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
 const UINT WM_EXIT_APP = WM_APP + 1; // Custom message from DLL
 
 // Global variables
-HINSTANCE g_hInstance = NULL;
-HWND g_hMainWnd = NULL;
-HWND g_hSliderWnd = NULL;
+static HINSTANCE g_hInstance = NULL;
+static HWND g_hMainWnd = NULL;
+static HWND g_hSliderWnd = NULL;
+static UINT g_shellCreated = 0;
+static BOOL g_userLaunched = FALSE;
+static BOOL g_spawnedMode = FALSE;
 
 // Main Message Window Procedure
 LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -40,12 +43,26 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 
         if (hIcon) {
             TrayIcon::Create(hwnd, WM_TRAYICON, hIcon, L"WinMM Stubs Volume");
-            TrayIcon::RefreshFromRegistry();
         }
+
+        // Create the slider window (hidden initially)
+        g_hSliderWnd = VolumeSlider::Create(g_hInstance, hwnd);
+        g_shellCreated = RegisterWindowMessageW(L"TaskbarCreated");
+
+        SetTimer(hwnd, 1, 3000, NULL);
+        break;
     }
-    // Create the slider window (hidden initially)
-    g_hSliderWnd = VolumeSlider::Create(g_hInstance, hwnd);
-    break;
+
+    case WM_TIMER:
+        if (wParam == 1) {
+            if (g_spawnedMode) {
+                RegistryManager::SweepAndInvalidateDeadPids();
+                if (!RegistryManager::HasAnyLiveApp()) {
+                    DestroyWindow(hwnd);
+                }
+            }
+        }
+        break;
 
     case WM_TRAYICON: // Message from the tray icon
         switch (LOWORD(lParam)) { // Notification event
@@ -101,6 +118,15 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         break;
 
     default:
+        if (message == g_shellCreated) {
+            HICON hIcon = (HICON)LoadImageW(g_hInstance, MAKEINTRESOURCEW(IDI_TRAYICON_LVL3), IMAGE_ICON,
+                GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+            if (!hIcon) hIcon = LoadIconW(g_hInstance, MAKEINTRESOURCEW(IDI_TRAYICON_LVL3));
+
+            if (hIcon) {
+                TrayIcon::Create(hwnd, WM_TRAYICON, hIcon, L"WinMM Stubs Volume");
+            }
+        }
         return DefWindowProc(hwnd, message, wParam, lParam);
     }
     return 0;
@@ -112,6 +138,21 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     _In_ LPWSTR lpCmdLine,
     _In_ int nCmdShow)
 {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv) {
+        for (int i = 1; i < argc; ++i) {
+            if (lstrcmpiW(argv[i], L"--spawned") == 0) {
+                g_userLaunched = FALSE;
+                g_spawnedMode = TRUE;
+            }
+            else if (lstrcmpiW(argv[i], L"--user") == 0) {
+                g_userLaunched = TRUE;
+                g_spawnedMode = FALSE;
+            }
+        }
+        LocalFree(argv);
+    }
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
 

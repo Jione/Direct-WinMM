@@ -61,6 +61,7 @@ namespace TrayIcon {
         nid.uID = TRAY_ICON_ID;
         nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
         nid.uCallbackMessage = uCallbackMessage;
+        nid.cbSize = sizeof(NOTIFYICONDATA);
         nid.hIcon = hIcon;
         if (szTip) {
             lstrcpynW(nid.szTip, szTip, (sizeof(nid.szTip) / sizeof(nid.szTip[0])));
@@ -88,14 +89,10 @@ namespace TrayIcon {
     }
 
     BOOL Destroy(HWND hOwnerWnd) {
+        NOTIFYICONDATA nid = { 0, };
         nid.hWnd = hOwnerWnd;
         nid.uID = TRAY_ICON_ID;
-        if (RegistryManager::IsVistaOrLater()) {
-            nid.cbSize = sizeof(nid);
-        }
-        else {
-            nid.cbSize = NOTIFYICONDATA_V2_SIZE;
-        }
+        nid.cbSize = sizeof(NOTIFYICONDATA);
         BOOL ok = Shell_NotifyIconW(NIM_DELETE, &nid);
         return ok;
     }

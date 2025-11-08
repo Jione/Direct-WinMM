@@ -53,8 +53,6 @@ namespace {
     static int gVolume = 100;
     static BOOL gMute = FALSE;
 
-    static PROCESS_INFORMATION gVolProc = {}; // launched WinmmVol.exe, if any
-
     // simple 64-bit FNV-1a to derive a deterministic "GUID-like" key
     static ULONGLONG Fnv1a64(const void* data, size_t len) {
         const unsigned char* p = (const unsigned char*)data;
@@ -178,10 +176,12 @@ namespace {
                 dprintf(L"Could not determine path to launch %s.", EXE_NAME);
                 return FALSE;
             }
-            BOOL ok = CreateProcessW(exe, NULL, NULL, NULL, FALSE, 0, NULL, dir, &si, &pi);
+            std::wstring cmd = L"\"";
+            cmd += exe;
+            cmd += L"\" --spawned";
+            BOOL ok = CreateProcessW(NULL, &cmd[0], NULL, NULL, FALSE, 0, NULL, dir, &si, &pi);
             if (ok) {
                 dprintf(L"Launched %s successfully.", EXE_NAME);
-                gVolProc = pi;
                 CloseHandle(pi.hThread);
                 Sleep(500);
                 return TRUE;
@@ -198,23 +198,6 @@ namespace {
             dprintf(L"Failed to create or open mutex '%s'. Error: %d", MUTEX_NAME, GetLastError());
         }
         return FALSE;
-    }
-
-    static BOOL CloseWinmmVolIfLaunched() {
-        if (!gVolProc.hProcess) return FALSE;
-        DWORD pid = gVolProc.dwProcessId;
-        if (!IsProcessAlive(pid)) goto _cleanup;
-
-        // Find top-level windows of that PID, send WM_CLOSE
-        HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
-        if (hwnd) {
-            PostMessageW(hwnd, WM_EXIT_APP, 0, 0);
-        }
-    _cleanup:
-        CloseHandle(gVolProc.hThread);
-        CloseHandle(gVolProc.hProcess);
-        ZeroMemory(&gVolProc, sizeof(gVolProc));
-        return TRUE;
     }
 
     // -----------------------------------------------------------------------------
@@ -420,8 +403,6 @@ namespace PreferenceLoader {
             SetEvent(gStop);
             WaitForSingleObject(gThread, 3000);
         }
-
-        CloseWinmmVolIfLaunched();
 
         if (gThread) { CloseHandle(gThread); gThread = NULL; }
         if (gStop) { CloseHandle(gStop);   gStop = NULL; }

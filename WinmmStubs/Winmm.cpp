@@ -637,7 +637,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             isFail = FALSE;
             if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
             else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
-            else if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format")) {
+            else if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format") || IsWordEq(token, L"time format")) {
                 if (IsWordEq(token, L"time")) {
                     token = GetNextToken(&checkText);
                     if (!token) { continue; }
@@ -690,7 +690,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             else if (IsWordEq(token, L"position")) {
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_POSITION;
             }
-            else if (IsWordEq(token, L"number") || IsWordEq(token, L"number_of_tracks")) {
+            else if (IsWordEq(token, L"number") || IsWordEq(token, L"number_of_tracks") || IsWordEq(token, L"number of tracks")) {
                 if (IsWordEq(token, L"number")) {
                     token = GetNextToken(&checkText);
                     if (!token) { continue; }
@@ -701,7 +701,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 }
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_NUMBER_OF_TRACKS;
             }
-            else if (IsWordEq(token, L"current") || IsWordEq(token, L"current_track")) {
+            else if (IsWordEq(token, L"current") || IsWordEq(token, L"current_track") || IsWordEq(token, L"current track")) {
                 if (IsWordEq(token, L"current")) {
                     token = GetNextToken(&checkText);
                     if (!token) { continue; }
@@ -712,7 +712,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             else if (IsWordEq(token, L"mode")) {
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_MODE;
             }
-            else if (IsWordEq(token, L"media") || IsWordEq(token, L"media_present")) {
+            else if (IsWordEq(token, L"media") || IsWordEq(token, L"media_present") || IsWordEq(token, L"media present")) {
                 if (IsWordEq(token, L"media")) {
                     token = GetNextToken(&checkText);
                     if (!token) { continue; }
@@ -720,7 +720,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 }
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_MEDIA_PRESENT;
             }
-            else if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format")) {
+            else if (IsWordEq(token, L"time") || IsWordEq(token, L"time_format") || IsWordEq(token, L"time format")) {
                 if (IsWordEq(token, L"time")) {
                     token = GetNextToken(&checkText);
                     if (!token) { continue; }

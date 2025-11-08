@@ -109,6 +109,12 @@ namespace RegistryManager {
         return cached ? TRUE : FALSE;
     }
 
+    BOOL HasAnyLiveApp() {
+        std::vector<AppEntry> apps;
+        if (!EnumApps(apps, TRUE)) return FALSE; // onlyLive = TRUE
+        return !apps.empty();
+    }
+
     // Global -------------------------------------------------------------------
 
     DWORD GetGlobalOverride() {
