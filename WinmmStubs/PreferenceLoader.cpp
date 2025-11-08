@@ -265,7 +265,7 @@ namespace {
     // -----------------------------------------------------------------------------
     static float VolumePercentToFloat(int percent) {
         if ((DWORD)percent <= 0) return 0.0f;
-        if ((DWORD)percent >= 100) return 100.0f;
+        if ((DWORD)percent >= 100) return 1.0f;
         return (float)percent / 100.0f;
     }
 
