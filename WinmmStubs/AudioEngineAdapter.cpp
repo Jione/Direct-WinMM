@@ -113,6 +113,9 @@ namespace {
     static DWORD gRangeTotalMs = 0;   // The total duration of the current range
     static int   gRangeToTrack = 1;   // Store the target TO position for end-of-play status
     static DWORD gRangeToMs = 0;      // Store the target TO position for end-of-play status
+    static BOOL  gIsCued = FALSE;     // TRUE if MCI_SEEK was the last command
+    static int   gCuedTrack = 1;      // State for MCI_SEEK
+    static DWORD gCuedMs = 0;         // State for MCI_SEEK
 
     // --- General Utilities ---
 
@@ -906,6 +909,7 @@ namespace AudioEngine {
     }
 
     BOOL PlayRange(int fromTrack, DWORD fromMs, int toTrack, DWORD toMs, BOOL loop, HWND notifyHwnd) {
+        gIsCued = FALSE;
         if (!gInited) { if (!InitializeIfNeeded(notifyHwnd)) return FALSE; }
 
         // FIXME: if toTrack < fromTrack, it's backward play, but skip for now
@@ -1030,8 +1034,24 @@ namespace AudioEngine {
         if (!gEverPlayed) return 1;
         return gStatusTrack;
     }
-    BOOL SeekTrack(int track) {
-        return (1 <= track <= 99) ? gStatusTrack = track : FALSE;
+    BOOL Seek(int toTrack, DWORD toMs) {
+        StopAll(); // Stop playback and clear buffers
+
+        gIsCued = TRUE;
+        gCuedTrack = toTrack;
+        gCuedMs = toMs;
+
+        // Set state so STATUS reports correctly and PLAY starts here
+        gCurTrack = toTrack;
+        gStatusTrack = toTrack;
+        gRangeStartMs = toMs; // Store relative Ms
+        gEverPlayed = TRUE;   // Mark as "ready"
+
+        // Ensure range TO matches cue position
+        gRangeToTrack = toTrack;
+        gRangeToMs = toMs;
+
+        return TRUE;
     }
 
     DWORD CurrentPositionMs() {
@@ -1085,6 +1105,13 @@ namespace AudioEngine {
 
     BOOL GetCurrentTrackPosition(int* outTrack, DWORD* outRelativeMs) {
         if (!outTrack || !outRelativeMs) return FALSE;
+
+        // Check if cued by MCI_SEEK and currently stopped
+        if (gIsCued && !IsPlaying() && !IsPaused()) {
+            *outTrack = gCuedTrack;
+            *outRelativeMs = gCuedMs;
+            return TRUE;
+        }
 
         // Get the current absolute elapsed time since playback started (0...gRangeTotalMs).
         DWORD absoluteElapsedMs = CurrentPositionMs();

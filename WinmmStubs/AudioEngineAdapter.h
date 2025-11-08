@@ -31,9 +31,9 @@ namespace AudioEngine {
     BOOL  HasReachedEnd();
     BOOL  IsPlaying();
     BOOL  IsPaused();
-    int   CurrentTrack();        // MCICDA compatibility rule
-    BOOL  SeekTrack(int track);  // MCICDA compatibility rule
-    DWORD CurrentPositionMs();   // MCICDA compatibility rule
+    int   CurrentTrack();               // MCICDA compatibility rule
+    BOOL  Seek(int toTrack, DWORD toMs);// MCICDA compatibility rule
+    DWORD CurrentPositionMs();          // MCICDA compatibility rule
     UINT  CurrentSampleRate();
     UINT  CurrentChannels();
 

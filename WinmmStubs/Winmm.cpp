@@ -612,9 +612,12 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 if (token) {
                     if (IsWordEq(token, L"start")) fdwCommand |= MCI_SEEK_TO_START;
                     else if (IsWordEq(token, L"end")) fdwCommand |= MCI_SEEK_TO_END;
-                    else if (IsWordEq(token, L"track")) fdwCommand |= MCI_TRACK;
                     else {
                         fdwCommand |= MCI_TO;
+                        if (IsWordEq(token, L"track")) {
+                            fdwCommand |= MCI_TRACK;
+                            token = GetNextToken(&checkText);
+                        }
                         if (!ParseMciInteger(token, &dwParam.dwTo)) {
                             *ret = MCIERR_BAD_INTEGER; return !isAll;;
                         }

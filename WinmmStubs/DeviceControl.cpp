@@ -64,12 +64,20 @@ namespace {
     static BOOL ResolvePlayRange(DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam, int* outFromTr, DWORD* outFromMs, int* outToTr, DWORD* outToMs) {
         if (!outFromTr || !outFromMs || !outToTr || !outToMs) return FALSE;
 
-        // Default: Start of track 1
-        *outFromTr = 1;
-        *outFromMs = 0;
+        // Default: Current Track
+        if (!AudioEngine::GetCurrentTrackPosition(outFromTr, outFromMs)) {
+            // This happens if not initialized or error, default to Track 1, 0ms
+            *outFromTr = 1;
+            *outFromMs = 0;
+        }
         // Default: End of disc (will be set explicitly later)
-        *outToTr = 1;
-        *outToMs = 0xFFFFFFFF;
+        if (!AudioEngine::GetDiscNumTracks(outToTr) || *outToTr < 1) {
+            *outToTr = 1;
+        }
+        // Get the actual length of the last track
+        if (!AudioEngine::GetTrackLengthMs(*outToTr, outToMs)) {
+            *outToMs = 0xFFFFFFFF; // Failsafe
+        }
 
         // If no struct (e.g. "play cdaudio"), set TO to end of disc and return
         if (!dwParam) {
@@ -270,27 +278,73 @@ namespace Device {
         return MMSYSERR_NOERROR;
     }
 
-    // ADD: Added MCI_SEEK behavior emulation
+    // Added MCI_SEEK behavior emulation
     MMRESULT Seek(DeviceContext* ctx, DWORD fdw, DWORD_PTR dwParam) {
         if (!ctx || !ctx->isOpen) return MCIERR_DEVICE_NOT_READY;
-        UINT tf = DeviceInfo::GetDeviceTimeFormat(ctx->deviceId);
-        int tr;
 
-        if (fdw & MCI_SEEK_TO_START) tr = 1;
+        int toTrack = 1;
+        DWORD toMs = 0;
+
+        if (fdw & MCI_SEEK_TO_START) {
+            toTrack = 1;
+            toMs = 0;
+        }
         else if (fdw & MCI_SEEK_TO_END) {
-            if (!AudioEngine::GetDiscNumTracks(&tr)) tr = 1;
+            if (!AudioEngine::GetDiscNumTracks(&toTrack) || toTrack < 1) {
+                toTrack = 1;
+            }
+            // Get the actual length of the last track
+            if (!AudioEngine::GetTrackLengthMs(toTrack, &toMs)) {
+                toMs = 0; // Failsafe
+            }
         }
-        else if (!dwParam) return MCIERR_MISSING_PARAMETER;
-        else if (tf == MCI_FORMAT_TMSF) {
+        else if (fdw & MCI_TO) {
+            if (!dwParam) return MCIERR_MISSING_PARAMETER;
             MCI_SEEK_PARMS* p = (MCI_SEEK_PARMS*)dwParam;
-            tr = MCI_TMSF_TRACK(p->dwTo);
-            if (!(1 <= tr <= 99)) return MCIERR_BAD_INTEGER;
+            UINT tf = DeviceInfo::GetDeviceTimeFormat(ctx->deviceId);
+            DWORD v = p->dwTo;
+            if (fdw & MCI_TRACK) { tf = MCI_FORMAT_TMSF; }
+
+            switch (tf) {
+            case MCI_FORMAT_MILLISECONDS: {
+                DWORD absoluteMs = v;
+                if (!ConvertAbsoluteMsToTrackMs(absoluteMs, &toTrack, &toMs)) {
+                    return MCIERR_OUTOFRANGE;
+                }
+                break;
+            }
+            case MCI_FORMAT_MSF: {
+                BYTE mm = MCI_MSF_MINUTE(v);
+                BYTE ss = MCI_MSF_SECOND(v);
+                BYTE ff = MCI_MSF_FRAME(v);
+                DWORD frames = (DWORD)mm * 60 * 75 + (DWORD)ss * 75 + (DWORD)ff;
+                DWORD absoluteMs = FramesToMilliseconds(frames);
+                if (!ConvertAbsoluteMsToTrackMs(absoluteMs, &toTrack, &toMs)) {
+                    return MCIERR_OUTOFRANGE;
+                }
+                break;
+            }
+            case MCI_FORMAT_TMSF: {
+                BYTE tr = MCI_TMSF_TRACK(v);
+                BYTE mm = MCI_TMSF_MINUTE(v);
+                BYTE ss = MCI_TMSF_SECOND(v);
+                BYTE ff = MCI_TMSF_FRAME(v);
+                DWORD frames = (DWORD)mm * 60 * 75 + (DWORD)ss * 75 + (DWORD)ff;
+                toTrack = (tr > 0) ? tr : 1;
+                toMs = FramesToMilliseconds(frames);
+                break;
+            }
+            default:
+                return MCIERR_BAD_TIME_FORMAT;
+            }
         }
-        else tr = 0;
+        else {
+            return MCIERR_MISSING_PARAMETER;
+        }
 
         NotifyManager::UnregisterPlaybackNotify(ctx->deviceId);
-        AudioEngine::StopAll();
-        if (tr) AudioEngine::SeekTrack(tr);
+        AudioEngine::Seek(toTrack, toMs);
+
         if (fdw & MCI_NOTIFY) {
             NotifyManager::LazyNotify(ctx->deviceId, ctx->notifyHwnd, MCI_NOTIFY_SUCCESSFUL);
         }
