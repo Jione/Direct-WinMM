@@ -163,7 +163,9 @@ namespace {
             RegistryManager::SetAppOverride(g_currentGuid, ov);
         }
         g_curOverride = ov;
-        if (refreshTray) TrayIcon::RefreshFromRegistry();
+        if (refreshTray) {
+            TrayIcon::RefreshForTarget(g_currentGuid);
+        }
     }
 
     // sync UI controls (engine/buffer/slider/mute) from current target override
@@ -258,8 +260,6 @@ namespace {
             g_items.push_back(ai);
             int idx = (int)SendMessageW(g_hwndCmbApp, CB_ADDSTRING, 0, (LPARAM)ai->display.c_str());
             SendMessageW(g_hwndCmbApp, CB_SETITEMDATA, idx, (LPARAM)ai);
-            SendMessageW(g_hwndCmbApp, CB_SETCURSEL, idx, 0);
-            g_currentGuid.clear();
         }
 
         // live apps
@@ -293,6 +293,21 @@ namespace {
             int idx = (int)SendMessageW(g_hwndCmbApp, CB_ADDSTRING, 0, (LPARAM)ai->display.c_str());
             SendMessageW(g_hwndCmbApp, CB_SETITEMDATA, idx, (LPARAM)ai);
         }
+
+        // Selective recovery logic
+        int sel = -1;
+        if (!g_currentGuid.empty()) {
+            const int count = (int)SendMessageW(g_hwndCmbApp, CB_GETCOUNT, 0, 0);
+            for (int i = 0; i < count; ++i) {
+                AppItem* ai = (AppItem*)SendMessageW(g_hwndCmbApp, CB_GETITEMDATA, i, 0);
+                if (ai && ai->guid == g_currentGuid) { sel = i; break; }
+            }
+        }
+        if (sel < 0) {
+            sel = 0;
+            g_currentGuid.clear();
+        }
+        SendMessageW(g_hwndCmbApp, CB_SETCURSEL, sel, 0);
     }
 
     // Sync all controls from current target
@@ -549,6 +564,17 @@ namespace {
             const int id = LOWORD(wParam);
             const int code = HIWORD(wParam);
 
+            if (id == IDC_APP_COMBO && code == CBN_SELCHANGE) {
+                int sel = (int)SendMessageW(g_hwndCmbApp, CB_GETCURSEL, 0, 0);
+                AppItem* ai = (AppItem*)SendMessageW(g_hwndCmbApp, CB_GETITEMDATA, sel, 0);
+                if (ai) {
+                    g_currentGuid = ai->guid;
+                    SyncControlsFromTarget();
+                    TrayIcon::RefreshForTarget(g_currentGuid);
+                }
+                return 0;
+            }
+
             // speaker icon click -> toggle mute on target override
             if (id == IDC_VOLUMEICON && code == STN_CLICKED) {
                 DWORD ov = ReadTargetOverride();
@@ -702,6 +728,8 @@ namespace VolumeSlider {
         SetWindowPos(hwndSlider, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW);
         SetForegroundWindow(hwndSlider);
         SetFocus(hwndSlider);
+
+        TrayIcon::RefreshForTarget(g_currentGuid);
     }
 
     void UpdateDisplay(HWND hwndSlider) {
@@ -709,7 +737,7 @@ namespace VolumeSlider {
         SyncControlsFromTarget();
     }
 
-    void VolumeSlider::SetShowAllApps(BOOL enable) {
+    void SetShowAllApps(BOOL enable) {
         g_showAllApps = enable ? TRUE : FALSE;
 
         if (IsWindow(g_hwndPanel)) {
@@ -733,5 +761,30 @@ namespace VolumeSlider {
             SyncControlsFromTarget();
         }
     }
+
+    void SelectGlobal() {
+        g_currentGuid.clear();
+        if (IsWindow(g_hwndCmbApp)) {
+            SendMessageW(g_hwndCmbApp, CB_SETCURSEL, 0, 0);
+        }
+        // Synchronization the UI/Tray
+        SyncControlsFromTarget();
+        TrayIcon::RefreshForTarget(g_currentGuid);
+    }
+
+    void EnsureSelectionLiveOrGlobal() {
+        if (g_currentGuid.empty()) return; // already Global
+        if (!RegistryManager::IsAppLive(g_currentGuid)) {
+            if (IsWindow(g_hwndPanel)) {
+                PopulateAppCombo();
+            }
+            SelectGlobal();
+        }
+    }
+
+    std::wstring GetCurrentGuid() {
+        return g_currentGuid; // empty = Global
+    }
+
 
 } // namespace VolumeSlider

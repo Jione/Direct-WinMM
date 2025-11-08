@@ -2,6 +2,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <string>
 
 namespace VolumeSlider {
     // Registers the window class for the slider pop-up
@@ -18,5 +19,9 @@ namespace VolumeSlider {
 
     // Shows all application settings
     void SetShowAllApps(BOOL enable);
+
+    void SelectGlobal();
+    void EnsureSelectionLiveOrGlobal();
+    std::wstring GetCurrentGuid();
 
 } // namespace VolumeSlider

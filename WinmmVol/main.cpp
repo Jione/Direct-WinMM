@@ -61,6 +61,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
                     DestroyWindow(hwnd);
                 }
             }
+            VolumeSlider::EnsureSelectionLiveOrGlobal();
         }
         break;
 
@@ -94,7 +95,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
             break;
         case IDM_MODE_CLEAR:
             RegistryManager::ResetAllSettings();
-            TrayIcon::RefreshFromRegistry();
+            VolumeSlider::SelectGlobal();
             VolumeSlider::UpdateDisplay(g_hSliderWnd);
             break;
         case IDM_SHOW_ALL_APPS:

@@ -115,6 +115,16 @@ namespace RegistryManager {
         return !apps.empty();
     }
 
+    BOOL IsAppLive(const std::wstring& guid) {
+        if (!gRoot || guid.empty()) return FALSE;
+        HKEY hApp = NULL;
+        if (RegOpenKeyExW(gRoot, guid.c_str(), 0, KEY_READ, &hApp) != ERROR_SUCCESS) return FALSE;
+        DWORD pid = 0, type = 0, cb = sizeof(pid);
+        RegQueryValueExW(hApp, VAL_PID, NULL, &type, (LPBYTE)&pid, &cb);
+        RegCloseKey(hApp);
+        return IsProcessAlive(pid) ? TRUE : FALSE; // anon namespace helper already exists
+    }
+
     // Global -------------------------------------------------------------------
 
     DWORD GetGlobalOverride() {

@@ -111,6 +111,20 @@ namespace TrayIcon {
         }
     }
 
+    void RefreshForTarget(const std::wstring& guid) {
+        DWORD ov = guid.empty()
+            ? RegistryManager::GetGlobalOverride()
+            : RegistryManager::ComputeEffective(guid);
+        const BOOL isMute = RegistryManager::OV_GetMute(ov);
+        const int  percent = RegistryManager::OV_GetVolume(ov);
+        HICON hNew = ChooseIcon(isMute, percent);
+        if (hNew) {
+            nid.uFlags = NIF_ICON;
+            nid.hIcon = hNew;
+            Shell_NotifyIconW(NIM_MODIFY, &nid);
+        }
+    }
+
     void ShowContextMenu(HWND hOwnerWnd) {
         HMENU hMenu = LoadMenuW(GetModuleHandle(NULL), MAKEINTRESOURCEW(IDR_TRAYMENU));
         if (!hMenu) return;

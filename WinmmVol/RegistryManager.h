@@ -48,6 +48,7 @@ namespace RegistryManager {
 
     BOOL IsVistaOrLater();     // Vista+ == TRUE, XP == FALSE
     BOOL HasAnyLiveApp();      // TRUE if there is at least one live app
+    BOOL IsAppLive(const std::wstring& guid);
 
     // Global override -----------------------------------------------------------
 

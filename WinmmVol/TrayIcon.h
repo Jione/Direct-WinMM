@@ -2,6 +2,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <string>
 
 // Custom message sent by the tray icon to the main window
 #define WM_TRAYICON (WM_APP + 100)
@@ -16,8 +17,9 @@ namespace TrayIcon {
     // Shows the context menu near the cursor
     void ShowContextMenu(HWND hOwnerWnd);
 
-    // Refresh tray icon from registry (mute + volume%)
+    // Refresh tray icon from registry or target (mute + volume%)
     void RefreshFromRegistry();
+    void RefreshForTarget(const std::wstring& guid);
 
     void SetShowAllApps(BOOL enable);
     BOOL GetShowAllApps();
