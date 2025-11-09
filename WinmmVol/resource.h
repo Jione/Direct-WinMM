@@ -35,13 +35,6 @@
 #define IDC_LABEL_VOLUME        2008
 #define IDC_LABEL_ENGINE        2009
 #define IDC_LABEL_BUFFER        2010
-#define IDC_ENGINE_AUTO         2011
-#define IDC_ENGINE_DS           2012
-#define IDC_ENGINE_WASAPI       2013
-#define IDC_MODE_AUTO           2014
-#define IDC_MODE_STREAMING      2015
-#define IDC_MODE_FULLBUFFER     2016
-#define IDC_MODE_RESAMPLE       2017
 
 // About Dialog IDs
 #define IDD_ABOUT               3000

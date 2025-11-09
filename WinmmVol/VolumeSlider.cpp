@@ -142,6 +142,73 @@ namespace {
         g_isMuted = isMuted;
     }
 
+    static void AppendDefaultSuffix(std::wstring& s) {
+        std::wstring tmp;
+        s.append(L" (").append(UILang::Get(L"UI_DEFAULT", tmp)).append(L")");
+    }
+
+    static const wchar_t* Txt(const wchar_t* key) {
+        static std::wstring tmp; // not thread-safe, ok for UI thread
+        return UILang::Get(key, tmp);
+    }
+
+    static void RebuildEngineCombo(BOOL isGlobalScope) {
+        SendMessageW(g_hwndCmbEngine, CB_RESETCONTENT, 0, 0);
+
+        const BOOL isVista = RegistryManager::IsVistaOrLater();
+        if (!isVista) {
+            // XP
+            std::wstring label = Txt(L"UI_ENGINE_DS");
+            AppendDefaultSuffix(label); // "DirectSound Engine (Default)"
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)label.c_str());
+            SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, 0, 0);
+            EnableWindow(g_hwndCmbEngine, FALSE);
+            return;
+        }
+
+        EnableWindow(g_hwndCmbEngine, TRUE);
+
+        if (isGlobalScope) {
+            // Vista+ Global: [ WASAPI (Default), DirectSound ]
+            {
+                std::wstring s = Txt(L"UI_ENGINE_WASAPI");
+                AppendDefaultSuffix(s);
+                SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)s.c_str()); // idx 0 -> field 2
+            }
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_DS")); // idx 1 -> field 1
+        }
+        else {
+            // Vista+ App: [ Follows global, WASAPI, DirectSound ]
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_FOLLOW_GLOBAL")); // idx 0 -> field 0
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_WASAPI")); // idx 1 -> field 2
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_DS"));     // idx 2 -> field 1
+        }
+    }
+
+    static void RebuildBufferCombo(BOOL isGlobalScope) {
+        SendMessageW(g_hwndCmbBuffer, CB_RESETCONTENT, 0, 0);
+
+        if (isGlobalScope) {
+            std::wstring s = Txt(L"UI_BUFFER_STREAMING");
+            AppendDefaultSuffix(s);
+            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)s.c_str());                   // idx 0 -> field 1
+            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_BUFFER_FULL"));      // idx 1 -> field 2
+            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_BUFFER_RESAMPLE"));  // idx 2 -> field 3
+        }
+        else {
+            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_FOLLOW_GLOBAL"));    // idx 0 -> field 0
+            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_BUFFER_STREAMING")); // idx 1 -> field 1
+            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_BUFFER_FULL"));      // idx 2 -> field 2
+            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_BUFFER_RESAMPLE"));  // idx 3 -> field 3
+        }
+    }
+
+    static void RebuildCombosForScope() {
+        const BOOL isGlobal = g_currentGuid.empty() ? TRUE : FALSE;
+        RebuildEngineCombo(isGlobal);
+        RebuildBufferCombo(isGlobal);
+    }
+
     // small utils to read/write current target override -----------------------
 
     static DWORD ReadTargetOverride() {
@@ -172,25 +239,52 @@ namespace {
     static void SyncControlsFromTarget() {
         g_curOverride = ReadTargetOverride();
 
-        // Engine
-        int engine = RegistryManager::OV_GetEngine(g_curOverride);
-        // UI order: Auto(0), WASAPI(1), DirectSound(2)
-#if !defined(_DEBUG)
-        if (!RegistryManager::IsVistaOrLater() && engine == 2) {
-            // XP display as DS when registry says WASAPI (effective fallback)
-            engine = 1; // map to DS in UI
-        }
-#endif
+        // -------- Engine selection ----------
+        const BOOL isVista = RegistryManager::IsVistaOrLater();
+        const BOOL isGlobal = g_currentGuid.empty() ? TRUE : FALSE;
+        int engine = RegistryManager::OV_GetEngine(g_curOverride); // field: 0(auto),1(DS),2(WASAPI)
         int engineSel = 0;
-        if (engine == 2) engineSel = 1;  // WASAPI
-        else if (engine == 1) engineSel = 2; // DS
-        SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, engineSel, 0);
 
-        // Buffer (0..3) order same as UI items
-        int buf = RegistryManager::OV_GetBuffer(g_curOverride);
-        SendMessageW(g_hwndCmbBuffer, CB_SETCURSEL, buf, 0);
+        if (!isVista) {
+            // XP: DS(Default)
+            SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, 0, 0);
+        }
+        else {
+            if (isGlobal) {
+                // Vista+ Global UI: [ WASAPI(Default)=idx0 -> field2, DS=idx1 -> field1 ]
+                if (engine == 1) engineSel = 1;      // DS
+                else /* 0(auto) or 2(WASAPI) */ engineSel = 0; // WASAPI(Default)
+                SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, engineSel, 0);
+            }
+            else {
+                // Vista+ App UI: [ Follow=idx0->field0, WASAPI=idx1->field2, DS=idx2->field1 ]
+                if (engine == 0) engineSel = 0;
+                else if (engine == 2) engineSel = 1;
+                else /*1*/       engineSel = 2;
+                SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, engineSel, 0);
+            }
+        }
 
-        // Volume / Mute
+        // -------- Buffer selection ----------
+        int buf = RegistryManager::OV_GetBuffer(g_curOverride); // field: 0(auto),1(stream),2(full),3(resample)
+        int bufSel = 0;
+        if (isGlobal) {
+            // Global UI: [ Streaming(Default)=idx0->field1, Full=idx1->field2, Resample=idx2->field3 ]
+            if (buf == 2) bufSel = 1;
+            else if (buf == 3) bufSel = 2;
+            else /* 0(auto) or 1(stream) */ bufSel = 0; // Streaming(Default)
+            SendMessageW(g_hwndCmbBuffer, CB_SETCURSEL, bufSel, 0);
+        }
+        else {
+            // App UI: [ Follow=idx0->field0, Streaming=1, Full=2, Resample=3 ]
+            if (buf == 0) bufSel = 0;
+            else if (buf == 1) bufSel = 1;
+            else if (buf == 2) bufSel = 2;
+            else               bufSel = 3; // 3
+            SendMessageW(g_hwndCmbBuffer, CB_SETCURSEL, bufSel, 0);
+        }
+
+        // -------- Volume / Mute ----------
         const int  percent = RegistryManager::OV_GetVolume(g_curOverride);
         const BOOL isMuted = RegistryManager::OV_GetMute(g_curOverride);
         CustomSlider::SetValue(g_hwndSlider, percent, FALSE);
@@ -433,7 +527,7 @@ namespace {
 
             y += L.comboH + L.gapY;
 
-            // Row 2: Engine label + combo
+            // Row 2: Engine label
             g_hwndLblEngine = CreateWindowExW(0, L"STATIC",
                 SimpleUiText(L"UI_ENGINE", tmp),
                 WS_CHILD | WS_VISIBLE, x, y, L.labelW, L.rowH,
@@ -447,20 +541,9 @@ namespace {
                 hwnd, (HMENU)IDC_ENGINE_COMBO, GetModuleHandle(NULL), NULL);
             if (hFont) SendMessageW(g_hwndCmbEngine, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            // Order: Auto, WASAPI, DirectSound (UI)
-            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)SimpleUiText(L"UI_ENGINE_AUTO", tmp));
-            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)SimpleUiText(L"UI_ENGINE_WASAPI", tmp));
-            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)SimpleUiText(L"UI_ENGINE_DS", tmp));
-
-#if !defined(_DEBUG)
-            // XP gating: disable Engine combo on XP (Vista+ only)
-            if (!RegistryManager::IsVistaOrLater()) {
-                EnableWindow(g_hwndCmbEngine, FALSE);
-            }
-#endif
             y += L.comboH + L.gapY;
 
-            // Row 3: Buffer label + combo
+            // Row 3: Buffer label
             g_hwndLblBuffer = CreateWindowExW(0, L"STATIC",
                 SimpleUiText(L"UI_BUFFER_MODE", tmp),
                 WS_CHILD | WS_VISIBLE, x, y, L.labelW, L.rowH,
@@ -474,11 +557,7 @@ namespace {
                 hwnd, (HMENU)IDC_BUFFER_COMBO, GetModuleHandle(NULL), NULL);
             if (hFont) SendMessageW(g_hwndCmbBuffer, WM_SETFONT, (WPARAM)hFont, TRUE);
 
-            // Buffer items: Auto, Streaming, Full, Resample
-            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)SimpleUiText(L"UI_BUFFER_AUTO", tmp));
-            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)SimpleUiText(L"UI_BUFFER_STREAMING", tmp));
-            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)SimpleUiText(L"UI_BUFFER_FULL", tmp));
-            SendMessageW(g_hwndCmbBuffer, CB_ADDSTRING, 0, (LPARAM)SimpleUiText(L"UI_BUFFER_RESAMPLE", tmp));
+            RebuildCombosForScope();
 
             // Bottom: Volume row
             y = L.height - (L.rowH + L.volTrackH + L.gapY / 2);
@@ -569,6 +648,7 @@ namespace {
                 AppItem* ai = (AppItem*)SendMessageW(g_hwndCmbApp, CB_GETITEMDATA, sel, 0);
                 if (ai) {
                     g_currentGuid = ai->guid;
+                    RebuildCombosForScope();
                     SyncControlsFromTarget();
                     TrayIcon::RefreshForTarget(g_currentGuid);
                 }
@@ -596,28 +676,47 @@ namespace {
                 return 0;
             }
 
-            // Engine combo -> set field in target override; close dropdown & blur
+            // Engine combo
             if (id == IDC_ENGINE_COMBO && code == CBN_SELCHANGE) {
                 if (IsWindowEnabled(g_hwndCmbEngine)) {
-                    int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
-                    // UI order: Auto(0), WASAPI(1), DirectSound(2) -> engine: 0/2/1
-                    int engine = 0;
-                    if (sel == 1) engine = 2;       // WASAPI
-                    else if (sel == 2) engine = 1;  // DirectSound
-                    DWORD ov = ReadTargetOverride();
-                    ov = RegistryManager::OV_WithEngine(ov, engine);
-                    WriteTargetOverride(ov);
+                    const BOOL isVista = RegistryManager::IsVistaOrLater();
+                    if (isVista) {
+                        int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
+                        const BOOL isGlobal = g_currentGuid.empty() ? TRUE : FALSE;
+                        int fieldEngine = 0; // default to Auto/Follow
+
+                        if (isGlobal) {
+                            fieldEngine = (sel == 1) ? 1 : 0;
+                        }
+                        else {
+                            if (sel == 0) fieldEngine = 0;
+                            else if (sel == 1) fieldEngine = 2;
+                            else               fieldEngine = 1;
+                        }
+                        DWORD ov = ReadTargetOverride();
+                        ov = RegistryManager::OV_WithEngine(ov, fieldEngine);
+                        WriteTargetOverride(ov);
+                    }
                 }
                 SendMessageW((HWND)lParam, CB_SHOWDROPDOWN, FALSE, 0);
                 SetFocus(hwnd);
                 return 0;
             }
 
-            // Buffer combo -> set field; close dropdown & blur
+            // Buffer combo
             if (id == IDC_BUFFER_COMBO && code == CBN_SELCHANGE) {
                 int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
+                const BOOL isGlobal = g_currentGuid.empty() ? TRUE : FALSE;
+                int fieldBuf = 0;
+
+                if (isGlobal) {
+                    fieldBuf = (sel == 0) ? 0 : (sel == 1 ? 2 : 3);
+                }
+                else {
+                    fieldBuf = sel;
+                }
                 DWORD ov = ReadTargetOverride();
-                ov = RegistryManager::OV_WithBuffer(ov, sel); // UI order == field value
+                ov = RegistryManager::OV_WithBuffer(ov, fieldBuf);
                 WriteTargetOverride(ov);
                 SendMessageW((HWND)lParam, CB_SHOWDROPDOWN, FALSE, 0);
                 SetFocus(hwnd);
