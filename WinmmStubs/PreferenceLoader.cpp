@@ -17,7 +17,10 @@ static const wchar_t* const VAL_LASTSEEN = L"LastSeen";     // REG_QWORD
 const wchar_t* const EXE_NAME = L"WinmmVol.exe";
 const wchar_t* const MUTEX_NAME = L"WinMM-Stubs Volume Control";
 const wchar_t* const EXE_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
-const UINT WM_EXIT_APP = WM_APP + 1; // Custom message to signal the EXE
+
+// Custom message to signal the EXE
+const UINT WM_EXIT_APP = WM_APP + 1;
+const UINT WM_UPDATE_APP = WM_APP + 2;
 
 // Bit layout
 constexpr DWORD OV_VOL_SHIFT = 0;                // 0..100
@@ -398,7 +401,7 @@ namespace PreferenceLoader {
             WriteQWORD(gApp, VAL_LASTSEEN, NowFileTimeQword());
             HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
             if (hwnd) {
-                PostMessageW(hwnd, WM_TIMER, 1, 0);
+                PostMessageW(hwnd, WM_UPDATE_APP, 1, 0);
             }
         }
 
