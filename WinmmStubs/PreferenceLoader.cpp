@@ -392,10 +392,14 @@ namespace PreferenceLoader {
     }
 
     void Shutdown() {
-        // mark ProcessID invalid, update LastSeen, close WinmmVol.exe if launched/live
+        // mark ProcessID invalid, update LastSeen, update WinmmVol.exe if launched/live
         if (gApp) {
             WriteDWORD(gApp, VAL_PID, 0);
             WriteQWORD(gApp, VAL_LASTSEEN, NowFileTimeQword());
+            HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
+            if (hwnd) {
+                PostMessageW(hwnd, WM_TIMER, 1, 0);
+            }
         }
 
         // stop thread
