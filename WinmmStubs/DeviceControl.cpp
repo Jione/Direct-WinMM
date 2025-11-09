@@ -65,17 +65,21 @@ namespace {
         if (!outFromTr || !outFromMs || !outToTr || !outToMs) return FALSE;
 
         // Default: Current Track
-        if (!AudioEngine::GetCurrentTrackPosition(outFromTr, outFromMs)) {
-            // This happens if not initialized or error, default to Track 1, 0ms
+        AudioEngine::GetCurrentTrackPosition(outFromTr, outFromMs);
+        if (*outFromTr < 1 || *outFromTr > 99) {
             *outFromTr = 1;
             *outFromMs = 0;
         }
         // Default: End of disc (will be set explicitly later)
         if (!AudioEngine::GetDiscNumTracks(outToTr) || *outToTr < 1) {
             *outToTr = 1;
+            // Get the actual length of the last track
+            if (!AudioEngine::GetTrackLengthMs(*outToTr, outToMs)) {
+                *outToMs = 0xFFFFFFFF; // Failsafe
+            }
         }
-        // Get the actual length of the last track
-        if (!AudioEngine::GetTrackLengthMs(*outToTr, outToMs)) {
+        else {
+            *outToTr = 1;
             *outToMs = 0xFFFFFFFF; // Failsafe
         }
 
