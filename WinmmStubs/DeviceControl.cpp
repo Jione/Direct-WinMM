@@ -538,10 +538,10 @@ namespace Device {
             int tr = (int)p->dwTrack;
             DWORD ms = 0;
             if (!AudioEngine::GetTrackLengthMs(tr, &ms) || (ms == 0)) {
-                p->dwReturn = MCI_CDA_TRACK_AUDIO;
+                p->dwReturn = MCI_CDA_TRACK_OTHER;
             }
             else {
-                p->dwReturn = MCI_CDA_TRACK_OTHER;
+                p->dwReturn = MCI_CDA_TRACK_AUDIO;
             }
             break;
         }
