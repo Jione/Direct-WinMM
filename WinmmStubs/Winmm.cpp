@@ -771,7 +771,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
 
         if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
             // Format return string
-            if (fdwCommand & (MCI_STATUS_ITEM | MCI_STATUS_START)) {
+            if (fdwCommand & MCI_STATUS_START) {
                 FormatTimeString(ctx->timeFormat, dwParam.dwReturn, lpstrReturn, uReturnLength);
             }
             else {

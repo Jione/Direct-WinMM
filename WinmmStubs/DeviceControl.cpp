@@ -620,21 +620,7 @@ namespace Device {
             }
         }
         else if (fdw & MCI_SYSINFO_OPEN) {
-            // Requesting if device number N is open.
-            if (p->wDeviceType == MCI_DEVTYPE_CD_AUDIO && p->dwNumber == 1) {
-                // Check if our single device is in use
-                DeviceContext* cda = DeviceInfo::GetFirstDevice();
-                if (cda && cda->isOpen) {
-                    lstrcpynW(p->lpstrReturn, L"TRUE", p->dwRetSize);
-                }
-                else {
-                    lstrcpynW(p->lpstrReturn, L"FALSE", p->dwRetSize);
-                }
-            }
-            else {
-                // Device number out of range (not 1) or wrong type
-                ret = MCIERR_BAD_CONSTANT;
-            }
+            ret = MCIERR_BAD_CONSTANT;
         }
         else {
             // Other MCI_SYSINFO flags (like MCI_SYSINFO_INSTALLNAME) not supported
