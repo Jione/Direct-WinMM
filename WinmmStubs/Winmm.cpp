@@ -771,48 +771,43 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
 
         if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
             // Format return string
-            if (fdwCommand & MCI_STATUS_START) {
+            switch (dwParam.dwItem) {
+            case MCI_STATUS_LENGTH:
+            case MCI_STATUS_POSITION:
                 FormatTimeString(ctx->timeFormat, dwParam.dwReturn, lpstrReturn, uReturnLength);
-            }
-            else {
-                switch (dwParam.dwItem) {
-                case MCI_STATUS_LENGTH:
-                case MCI_STATUS_POSITION:
-                    FormatTimeString(ctx->timeFormat, dwParam.dwReturn, lpstrReturn, uReturnLength);
-                    break;
-                case MCI_STATUS_MODE:
-                    switch (dwParam.dwReturn) {
-                    case MCI_MODE_PLAY:   lstrcpynW(lpstrReturn, L"playing", uReturnLength); break;
-                    case MCI_MODE_PAUSE:  lstrcpynW(lpstrReturn, L"paused", uReturnLength); break;
-                    case MCI_MODE_STOP:   lstrcpynW(lpstrReturn, L"stopped", uReturnLength); break;
-                    default:              lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
-                    }
-                    break;
-                case MCI_STATUS_READY:
-                case MCI_STATUS_MEDIA_PRESENT:
-                    lstrcpynW(lpstrReturn, (dwParam.dwReturn ? L"true" : L"false"), uReturnLength);
-                    break;
-                case MCI_CDA_STATUS_TYPE_TRACK:
-                    switch (dwParam.dwReturn) {
-                    case MCI_CDA_TRACK_AUDIO: lstrcpynW(lpstrReturn, L"audio", uReturnLength); break;
-                    case MCI_CDA_TRACK_OTHER: lstrcpynW(lpstrReturn, L"other", uReturnLength); break;
-                    default:                  lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
-                    }
-                    break;
-                case MCI_STATUS_TIME_FORMAT:
-                    switch (dwParam.dwReturn) {
-                    case MCI_FORMAT_MILLISECONDS: lstrcpynW(lpstrReturn, L"milliseconds", uReturnLength); break;
-                    case MCI_FORMAT_MSF:          lstrcpynW(lpstrReturn, L"msf", uReturnLength); break;
-                    case MCI_FORMAT_TMSF:         lstrcpynW(lpstrReturn, L"tmsf", uReturnLength); break;
-                    default:                      lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
-                    }
-                    break;
-                case MCI_STATUS_NUMBER_OF_TRACKS:
-                case MCI_STATUS_CURRENT_TRACK:
-                default:
-                    wsprintfW(lpstrReturn, L"%lu", dwParam.dwReturn);
-                    break;
+                break;
+            case MCI_STATUS_MODE:
+                switch (dwParam.dwReturn) {
+                case MCI_MODE_PLAY:   lstrcpynW(lpstrReturn, L"playing", uReturnLength); break;
+                case MCI_MODE_PAUSE:  lstrcpynW(lpstrReturn, L"paused", uReturnLength); break;
+                case MCI_MODE_STOP:   lstrcpynW(lpstrReturn, L"stopped", uReturnLength); break;
+                default:              lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
                 }
+                break;
+            case MCI_STATUS_READY:
+            case MCI_STATUS_MEDIA_PRESENT:
+                lstrcpynW(lpstrReturn, (dwParam.dwReturn ? L"true" : L"false"), uReturnLength);
+                break;
+            case MCI_CDA_STATUS_TYPE_TRACK:
+                switch (dwParam.dwReturn) {
+                case MCI_CDA_TRACK_AUDIO: lstrcpynW(lpstrReturn, L"audio", uReturnLength); break;
+                case MCI_CDA_TRACK_OTHER: lstrcpynW(lpstrReturn, L"other", uReturnLength); break;
+                default:                  lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
+                }
+                break;
+            case MCI_STATUS_TIME_FORMAT:
+                switch (dwParam.dwReturn) {
+                case MCI_FORMAT_MILLISECONDS: lstrcpynW(lpstrReturn, L"milliseconds", uReturnLength); break;
+                case MCI_FORMAT_MSF:          lstrcpynW(lpstrReturn, L"msf", uReturnLength); break;
+                case MCI_FORMAT_TMSF:         lstrcpynW(lpstrReturn, L"tmsf", uReturnLength); break;
+                default:                      lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
+                }
+                break;
+            case MCI_STATUS_NUMBER_OF_TRACKS:
+            case MCI_STATUS_CURRENT_TRACK:
+            default:
+                wsprintfW(lpstrReturn, L"%lu", dwParam.dwReturn);
+                break;
             }
         }
         break;
