@@ -684,6 +684,18 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
             isFail = FALSE;
             if (IsWordEq(token, L"notify")) fdwCommand |= MCI_NOTIFY;
             else if (IsWordEq(token, L"wait")) fdwCommand |= MCI_WAIT;
+            else if (IsWordEq(token, L"type")) {
+                token = GetNextToken(&checkText);
+                if (!token) { continue; }
+                else if (!IsWordEq(token, L"track")) { isFail = TRUE; continue; }
+                token = GetNextToken(&checkText);
+                DWORD trackNum;
+                if (!token || !ParseMciInteger(token, &trackNum)) {
+                    *ret = MCIERR_BAD_INTEGER; return !isAll;;
+                }
+                fdwCommand |= MCI_STATUS_ITEM | MCI_TRACK; dwParam.dwItem = MCI_CDA_STATUS_TYPE_TRACK;
+                dwParam.dwTrack = trackNum;
+            }
             else if (IsWordEq(token, L"length")) {
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_LENGTH;
             }
@@ -738,6 +750,17 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                 }
                 dwParam.dwTrack = trackNum;
             }
+            else if (IsWordEq(token, L"start") || IsWordEq(token, L"start_position") || IsWordEq(token, L"start position")) {
+                if (IsWordEq(token, L"position")) {
+                    token = GetNextToken(&checkText);
+                    if (!token) { continue; }
+                    else if (!IsWordEq(token, L"position")) { isFail = TRUE; continue; }
+                }
+                fdwCommand |= MCI_STATUS_ITEM | MCI_STATUS_START;
+            }
+            else if (IsWordEq(token, L"ready")) {
+                fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_READY;
+            }
         }
 
         if (!(fdwCommand & MCI_STATUS_ITEM)) {
@@ -748,35 +771,48 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
 
         if (*ret == MMSYSERR_NOERROR && lpstrReturn) {
             // Format return string
-            switch (dwParam.dwItem) {
-            case MCI_STATUS_LENGTH:
-            case MCI_STATUS_POSITION:
+            if (fdwCommand & (MCI_STATUS_ITEM | MCI_STATUS_START)) {
                 FormatTimeString(ctx->timeFormat, dwParam.dwReturn, lpstrReturn, uReturnLength);
-                break;
-            case MCI_STATUS_MODE:
-                switch (dwParam.dwReturn) {
-                case MCI_MODE_PLAY:   lstrcpynW(lpstrReturn, L"playing", uReturnLength); break;
-                case MCI_MODE_PAUSE:  lstrcpynW(lpstrReturn, L"paused", uReturnLength); break;
-                case MCI_MODE_STOP:   lstrcpynW(lpstrReturn, L"stopped", uReturnLength); break;
-                default:              lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
+            }
+            else {
+                switch (dwParam.dwItem) {
+                case MCI_STATUS_LENGTH:
+                case MCI_STATUS_POSITION:
+                    FormatTimeString(ctx->timeFormat, dwParam.dwReturn, lpstrReturn, uReturnLength);
+                    break;
+                case MCI_STATUS_MODE:
+                    switch (dwParam.dwReturn) {
+                    case MCI_MODE_PLAY:   lstrcpynW(lpstrReturn, L"playing", uReturnLength); break;
+                    case MCI_MODE_PAUSE:  lstrcpynW(lpstrReturn, L"paused", uReturnLength); break;
+                    case MCI_MODE_STOP:   lstrcpynW(lpstrReturn, L"stopped", uReturnLength); break;
+                    default:              lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
+                    }
+                    break;
+                case MCI_STATUS_READY:
+                case MCI_STATUS_MEDIA_PRESENT:
+                    lstrcpynW(lpstrReturn, (dwParam.dwReturn ? L"true" : L"false"), uReturnLength);
+                    break;
+                case MCI_CDA_STATUS_TYPE_TRACK:
+                    switch (dwParam.dwReturn) {
+                    case MCI_CDA_TRACK_AUDIO: lstrcpynW(lpstrReturn, L"audio", uReturnLength); break;
+                    case MCI_CDA_TRACK_OTHER: lstrcpynW(lpstrReturn, L"other", uReturnLength); break;
+                    default:                  lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
+                    }
+                    break;
+                case MCI_STATUS_TIME_FORMAT:
+                    switch (dwParam.dwReturn) {
+                    case MCI_FORMAT_MILLISECONDS: lstrcpynW(lpstrReturn, L"milliseconds", uReturnLength); break;
+                    case MCI_FORMAT_MSF:          lstrcpynW(lpstrReturn, L"msf", uReturnLength); break;
+                    case MCI_FORMAT_TMSF:         lstrcpynW(lpstrReturn, L"tmsf", uReturnLength); break;
+                    default:                      lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
+                    }
+                    break;
+                case MCI_STATUS_NUMBER_OF_TRACKS:
+                case MCI_STATUS_CURRENT_TRACK:
+                default:
+                    wsprintfW(lpstrReturn, L"%lu", dwParam.dwReturn);
+                    break;
                 }
-                break;
-            case MCI_STATUS_MEDIA_PRESENT:
-                lstrcpynW(lpstrReturn, (dwParam.dwReturn ? L"true" : L"false"), uReturnLength);
-                break;
-            case MCI_STATUS_TIME_FORMAT:
-                switch (dwParam.dwReturn) {
-                case MCI_FORMAT_MILLISECONDS: lstrcpynW(lpstrReturn, L"milliseconds", uReturnLength); break;
-                case MCI_FORMAT_MSF:          lstrcpynW(lpstrReturn, L"msf", uReturnLength); break;
-                case MCI_FORMAT_TMSF:         lstrcpynW(lpstrReturn, L"tmsf", uReturnLength); break;
-                default:                      lstrcpynW(lpstrReturn, L"unknown", uReturnLength); break;
-                }
-                break;
-            case MCI_STATUS_NUMBER_OF_TRACKS:
-            case MCI_STATUS_CURRENT_TRACK:
-            default:
-                wsprintfW(lpstrReturn, L"%lu", dwParam.dwReturn);
-                break;
             }
         }
         break;
@@ -951,7 +987,7 @@ MCIERROR WINAPI mciSendCommandWStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD_PTR 
 }
 
 // mciSendCommandA connection function
-MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD fdwCommand, DWORD_PTR dwParam) {
+MCIERROR WINAPI mciSendCommandAStubs(MCIDEVICEID deviceId, UINT uMsg, DWORD_PTR fdwCommand, DWORD_PTR dwParam) {
     // Most structs not containing strings have identical A/W layout -> can pass directly.
     // However, commands with string fields require explicit conversion:
     //  - MCI_OPEN: (lpstrDeviceType / lpstrElementName / lpstrAlias)
@@ -1162,7 +1198,7 @@ MMRESULT WINAPI auxGetDevCapsAStubs(UINT_PTR uDeviceID, LPAUXCAPSA pac, UINT cba
 }
 
 MMRESULT WINAPI auxGetDevCapsWStubs(UINT_PTR uDeviceID, LPAUXCAPSW pac, UINT cbac) {
-    dprintf(L"auxGetDevCapsAStubs uDeviceID=0x%04X", uDeviceID);
+    dprintf(L"auxGetDevCapsWStubs uDeviceID=0x%04X", uDeviceID);
     if (!DeviceInfo::Initialize()) {
         dprintf(L"Return=MCIERR_INTERNAL (DeviceInfo Init Failed)");
         return MCIERR_INTERNAL;

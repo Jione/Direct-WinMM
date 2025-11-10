@@ -455,7 +455,10 @@ namespace Device {
         case MCI_STATUS_POSITION: {
             // Default: Return current "track relative" position
             // If MCI_TRACK n, return the start position of that track.
-            if (fdw & MCI_TRACK) {
+            if (fdw & MCI_STATUS_START) {
+                p->dwReturn = PackTime(tf, 0, 1);
+            }
+            else if (fdw & MCI_TRACK) {
                 int tr = (int)p->dwTrack;
                 if (tr <= 0) return MCIERR_BAD_INTEGER;
                 // Track start point: 0ms (track relative).
@@ -525,6 +528,19 @@ namespace Device {
         }
         case MCI_STATUS_TIME_FORMAT: {
             p->dwReturn = tf; // MCI_FORMAT_*
+            break;
+        }
+        case MCI_STATUS_READY: {
+            p->dwReturn = TRUE;
+            break;
+        }
+        case MCI_CDA_STATUS_TYPE_TRACK: {
+            int tr = (int)p->dwTrack;
+            DWORD ms = 0;
+            if (!AudioEngine::GetTrackLengthMs(tr, &ms) || (ms == 0)) {
+                p->dwReturn = MCI_CDA_TRACK_OTHER;
+                p->dwReturn = MCI_CDA_TRACK_AUDIO;
+            }
             break;
         }
         default:
