@@ -756,7 +756,7 @@ BOOL WINAPI mciStringHub(LPCWSTR lpstrCommand, LPWSTR lpstrReturn, UINT uReturnL
                     if (!token) { continue; }
                     else if (!IsWordEq(token, L"position")) { isFail = TRUE; continue; }
                 }
-                fdwCommand |= MCI_STATUS_ITEM | MCI_STATUS_START;
+                fdwCommand |= MCI_STATUS_ITEM | MCI_STATUS_START; dwParam.dwItem = MCI_STATUS_POSITION;
             }
             else if (IsWordEq(token, L"ready")) {
                 fdwCommand |= MCI_STATUS_ITEM; dwParam.dwItem = MCI_STATUS_READY;
