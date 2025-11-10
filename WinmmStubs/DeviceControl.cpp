@@ -461,10 +461,26 @@ namespace Device {
             else if (fdw & MCI_TRACK) {
                 int tr = (int)p->dwTrack;
                 if (tr <= 0) return MCIERR_BAD_INTEGER;
-                // Track start point: 0ms (track relative).
-                DWORD posMs = 0;
+
+                DWORD posMs = 0; // Default to 0ms (relative) for TMSF
+
+                // If the time format is absolute (MSF or Milliseconds),
+                // must calculate the absolute start time of the requested track.
+                if (tf == MCI_FORMAT_MSF || tf == MCI_FORMAT_MILLISECONDS) {
+                    DWORD absoluteMs = 0;
+                    // Sum the lengths of all tracks *before* the requested one
+                    for (int t = 1; t < tr; ++t) {
+                        DWORD trackLen = 0;
+                        if (!AudioEngine::GetTrackLengthMs(t, &trackLen)) {
+                            continue; // Or return MCIERR_INTERNAL;
+                        }
+                        absoluteMs += trackLen;
+                    }
+                    posMs = absoluteMs; // This is the absolute start time of track 'tr'
+                }
+
                 p->dwReturn = PackTime(tf, posMs, tr);
-                dprintf("MCI_STATUS_POSITION|MCI_TRACK Track=%d Time=%d", tr, posMs);
+                dprintf("MCI_STATUS_POSITION|MCI_TRACK Track=%d Time=%d (Format=%u)", tr, posMs, tf);
             }
             else {
                 int curTr = 1;
