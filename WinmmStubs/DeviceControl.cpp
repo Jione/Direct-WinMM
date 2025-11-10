@@ -619,11 +619,14 @@ namespace Device {
                 ret = MCIERR_BAD_CONSTANT;
             }
         }
+        else if (fdw & MCI_SYSINFO_INSTALLNAME) {
+            lstrcpynW(p->lpstrReturn, L"cdaudio", p->dwRetSize);
+        }
         else if (fdw & MCI_SYSINFO_OPEN) {
             ret = MCIERR_BAD_CONSTANT;
         }
         else {
-            // Other MCI_SYSINFO flags (like MCI_SYSINFO_INSTALLNAME) not supported
+            // Other MCI_SYSINFO flags not supported
             ret = MCIERR_UNSUPPORTED_FUNCTION;
         }
 
