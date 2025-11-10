@@ -4,29 +4,29 @@ This application includes third-party software:
 
 - minimp3 (CC0-1.0)
   https://github.com/lieff/minimp3
-  See full text in the in-app "Open Source License" screen.
+  See full text in the in-app "Open-source licenses" screen.
 
 - libogg (BSD-3-Clause)
   Copyright (c) 2002, Xiph.org Foundation
   https://xiph.org/ogg/
   https://github.com/gcp/libogg
-  See full text in the in-app "Open Source License" screen.
+  See full text in the in-app "Open-source licenses" screen.
 
 - libvorbis (BSD-3-Clause)
   Copyright (c) 2002-2020 Xiph.org Foundation
   https://xiph.org/vorbis/
   https://github.com/xiph/vorbis
-  See full text in the in-app "Open Source License" screen.
+  See full text in the in-app "Open-source licenses" screen.
 
 - libFLAC (BSD-3-Clause)
   Copyright (C) 2000-2009  Josh Coalson
   Copyright (C) 2011-2025  Xiph.Org Foundation
   https://xiph.org/flac/
   https://github.com/xiph/flac
-  See full text in the in-app "Open Source License" screen.
+  See full text in the in-app "Open-source licenses" screen.
 
 - libsamplerate (BSD-2-Clause)
   Copyright (c) 2012-2016, Erik de Castro Lopo <erikd@mega-nerd.com>
   http://libsndfile.github.io/libsamplerate/
   https://github.com/libsndfile/libsamplerate
-  See full text in the in-app "Open Source License" screen.
+  See full text in the in-app "Open-source licenses" screen.
