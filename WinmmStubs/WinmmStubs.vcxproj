@@ -194,6 +194,7 @@
     <ClCompile Include="AudioEngineAdapter.cpp" />
     <ClCompile Include="AudioEngineDirectSound.cpp" />
     <ClCompile Include="AudioEngineWASAPI.cpp" />
+    <ClCompile Include="AudioEngineWaveOut.cpp" />
     <ClCompile Include="DeviceControl.cpp" />
     <ClCompile Include="DeviceInfo.cpp" />
     <ClCompile Include="GlobalDefinitions.cpp" />
@@ -207,6 +208,7 @@
     <ClInclude Include="AudioEngineAdapter.h" />
     <ClInclude Include="AudioEngineDirectSound.h" />
     <ClInclude Include="AudioEngineWASAPI.h" />
+    <ClInclude Include="AudioEngineWaveOut.h" />
     <ClInclude Include="DeviceControl.h" />
     <ClInclude Include="DeviceInfo.h" />
     <ClInclude Include="GlobalDefinitions.h" />

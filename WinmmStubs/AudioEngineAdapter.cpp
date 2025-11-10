@@ -1,6 +1,7 @@
 #include "AudioEngineAdapter.h"
 #include "AudioEngineDirectSound.h"
 #include "AudioEngineWASAPI.h"
+#include "AudioEngineWaveOut.h"
 #include <samplerate.h>
 #include <string>
 #include <vector>
@@ -43,9 +44,14 @@ namespace {
 
     // Internal helper to determine if WASAPI should be used, respecting the override.
     inline BOOL UseWASAPI() {
-        if (gEngineOverride == 1) return FALSE; // Force DirectSound
         if (gEngineOverride == 2) return TRUE;  // Force WASAPI
+        if (gEngineOverride != 0) return FALSE; // Force DirectSound or WaveOut
         return gVistaOrLater; // Auto mode
+    }
+
+    // Internal helper to determine if WASAPI should be used, respecting the override.
+    inline BOOL UseWaveOut() {
+        return (gEngineOverride == 3) ? TRUE : FALSE;
     }
 
     // Internal helper to determine if FullBuffer mode should be used, respecting the override and OS defaults.
@@ -64,31 +70,46 @@ namespace {
     }
 
     // Engine Instances
-    static DSoundAudioEngine gDS;
-    static WasapiAudioEngine gWAS;
+    static DSoundAudioEngine  gDS;
+    static WasapiAudioEngine  gWAS;
+    static WaveOutAudioEngine gWav;
 
     // Engine Abstraction Wrappers
-    inline BOOL Engine_Initialize(HWND hwnd) { return UseWASAPI() ? gWAS.Initialize(hwnd) : gDS.Initialize(hwnd); }
-    inline void Engine_Shutdown() { UseWASAPI() ? gWAS.Shutdown() : gDS.Shutdown(); }
+    inline BOOL Engine_Initialize(HWND hwnd) {
+        return UseWASAPI() ? gWAS.Initialize(hwnd) : (UseWaveOut() ? gWav.Initialize(hwnd) : gDS.Initialize(hwnd));
+    }
+    inline void Engine_Shutdown() { UseWASAPI() ? gWAS.Shutdown() : (UseWaveOut() ? gWav.Shutdown() : gDS.Shutdown()); }
     inline BOOL Engine_Play(UINT sr, UINT ch, BOOL loop, DWORD(WINAPI* fill)(short*, DWORD, void*)) {
         return UseWASAPI() ? gWAS.PlayStream(sr, ch, fill, NULL, loop)
-            : gDS.PlayStream(sr, ch, fill, NULL, loop);
+            : (UseWaveOut() ? gWav.PlayStream(sr, ch, fill, NULL, loop)
+                : gDS.PlayStream(sr, ch, fill, NULL, loop));
     }
     inline BOOL Engine_PlayStatic(UINT sr, UINT ch, short* pcm, DWORD frames, BOOL loop) {
         return UseWASAPI() ? gWAS.PlayStaticBuffer(sr, ch, pcm, frames, loop)
-            : gDS.PlayStaticBuffer(sr, ch, pcm, frames, loop);
+            : (UseWaveOut() ? gWav.PlayStaticBuffer(sr, ch, pcm, frames, loop)
+                : gDS.PlayStaticBuffer(sr, ch, pcm, frames, loop));
     }
-    inline void Engine_Stop() { UseWASAPI() ? gWAS.Stop() : gDS.Stop(); }
-    inline void Engine_Pause() { UseWASAPI() ? gWAS.Pause() : gDS.Pause(); }
-    inline void Engine_Resume() { UseWASAPI() ? gWAS.Resume() : gDS.Resume(); }
-    inline void Engine_SetVol(float v) { UseWASAPI() ? gWAS.SetVolume(v) : gDS.SetVolume(v); }
-    inline void Engine_SetChannelMute(BOOL l, BOOL r) { UseWASAPI() ? gWAS.SetChannelMute(l, r) : gDS.SetChannelMute(l, r); }
-    inline void Engine_SetSubVol(float l, float r) { UseWASAPI() ? gWAS.SetSubVolume(l, r) : gDS.SetSubVolume(l, r); }
-    inline BOOL Engine_IsPlaying() { return UseWASAPI() ? gWAS.IsPlaying() : gDS.IsPlaying(); }
-    inline BOOL Engine_IsPaused() { return UseWASAPI() ? gWAS.IsPaused() : gDS.IsPaused(); }
-    inline DWORD Engine_PosMs() { return UseWASAPI() ? gWAS.GetPositionMs() : gDS.GetPositionMs(); }
-    inline UINT  Engine_SR() { return UseWASAPI() ? gWAS.CurrentSampleRate() : gDS.CurrentSampleRate(); }
-    inline UINT  Engine_CH() { return UseWASAPI() ? gWAS.CurrentChannels() : gDS.CurrentChannels(); }
+    inline void Engine_Stop() { UseWASAPI() ? gWAS.Stop() : (UseWaveOut() ? gWav.Stop() : gDS.Stop()); }
+    inline void Engine_Pause() { UseWASAPI() ? gWAS.Pause() : (UseWaveOut() ? gWav.Pause() : gDS.Pause()); }
+    inline void Engine_Resume() { UseWASAPI() ? gWAS.Resume() : (UseWaveOut() ? gWav.Resume() : gDS.Resume()); }
+    inline void Engine_SetVol(float v) { UseWASAPI() ? gWAS.SetVolume(v) : (UseWaveOut() ? gWav.SetVolume(v) : gDS.SetVolume(v)); }
+    inline void Engine_SetChannelMute(BOOL l, BOOL r) {
+        UseWASAPI() ? gWAS.SetChannelMute(l, r) : (UseWaveOut() ? gWav.SetChannelMute(l, r) : gDS.SetChannelMute(l, r));
+    }
+    inline void Engine_SetSubVol(float l, float r) {
+        UseWASAPI() ? gWAS.SetSubVolume(l, r) : (UseWaveOut() ? gWav.SetSubVolume(l, r) : gDS.SetSubVolume(l, r));
+    }
+    inline BOOL Engine_IsPlaying() { return UseWASAPI() ? gWAS.IsPlaying() : (UseWaveOut() ? gWav.IsPlaying() : gDS.IsPlaying()); }
+    inline BOOL Engine_IsPaused() { return UseWASAPI() ? gWAS.IsPaused() : (UseWaveOut() ? gWav.IsPaused() : gDS.IsPaused()); }
+    inline DWORD Engine_PosMs() {
+        return UseWASAPI() ? gWAS.GetPositionMs() : (UseWaveOut() ? gWav.GetPositionMs() : gDS.GetPositionMs());
+    }
+    inline UINT  Engine_SR() {
+        return UseWASAPI() ? gWAS.CurrentSampleRate() : (UseWaveOut() ? gWav.CurrentSampleRate() : gDS.CurrentSampleRate());
+    }
+    inline UINT  Engine_CH() {
+        return UseWASAPI() ? gWAS.CurrentChannels() : (UseWaveOut() ? gWav.CurrentChannels() : gDS.CurrentChannels());
+    }
 
     // Adapter State (Common)
     static BOOL gInited = FALSE;
@@ -826,7 +847,7 @@ namespace AudioEngine {
         if (gInited) return TRUE;
         gVistaOrLater = IsVistaOrLater();
         dprintf("Initialize audio with %s engine (Buffer: %s)",
-            (UseWASAPI() ? "WASAPI" : "DirectSound"), (UseFullBuffer() ? "Full" : "Streaming"));
+            (UseWASAPI() ? "WASAPI" : UseWaveOut() ? "WaveOut" : "DirectSound"), (UseFullBuffer() ? "Full" : "Streaming"));
         if (!Engine_Initialize(initWindow ? initWindow : GetDesktopWindow())) return FALSE;
         gInited = TRUE;
 
@@ -874,14 +895,15 @@ namespace AudioEngine {
     // Set the buffering strategy (0=Auto, 1=Streaming, 2=Full, 3=Full Resampling)
     void SetBufferMode(int mode) {
         if (mode < 0 || mode > 3) mode = 0;
-        if (mode == gBufferOverride) return;
+        if ((mode == gBufferOverride) || ((mode == 0) && (gBufferOverride == 1)) || ((mode == 0) && (gBufferOverride == 1)))
+            return;
 
         // Check if the *effective* mode (what's currently running) will change
         BOOL prevMode = UseFullBuffer();
-        BOOL newMode = ((mode == 0) ? !UseWASAPI() : (mode != 1)) ? TRUE : FALSE;
+        BOOL newMode = (mode > 1) ? TRUE : FALSE;
 
         // If the effective mode changed AND the engine was already initialized, shut it down.
-        if (mode == 3 || gBufferOverride == 3 || (gInited && (prevMode != newMode))) {
+        if (gInited && (prevMode != newMode)) {
             Shutdown(); // This stops playback and sets gInited = FALSE
         }
         
@@ -890,15 +912,16 @@ namespace AudioEngine {
 
     // Sets the audio engine override.
     void SetEngineOverride(int mode) {
-        if (mode < 0 || mode > 2) mode = 0;
+        if (mode < 0 || mode > 3) mode = 0;
         if (mode == gEngineOverride) return;
-
-        BOOL prevEngine = UseWASAPI();
-        BOOL modeEngine = ((mode == 0) ? gVistaOrLater : (mode != 1)) ? TRUE : FALSE;
-
-        if (gInited && (prevEngine != modeEngine)) {
-            Shutdown();
-        }
+        
+        int prevEngine = gEngineOverride;
+        int newEngine = mode;
+        if (gEngineOverride == 0) prevEngine = gVistaOrLater ? 2 : 1;
+        if (mode == 0) newEngine = mode ? 2 : 1;
+        if (prevEngine == newEngine) return;
+        
+        if (gInited) Shutdown();
 
         gEngineOverride = mode;
     }

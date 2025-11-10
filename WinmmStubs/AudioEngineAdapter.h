@@ -55,11 +55,11 @@ namespace AudioEngine {
     BOOL  GetCurrentTrackPosition(int* outTrack, DWORD* outRelativeMs);
 
     // Set Buffer mode
-    // @param mode 0 = Auto(Default), 1 = Force Streaming, 2 = Force FullBuffer
+    // @param mode 0 = Auto(Default), 1 = Force Streaming, 2 = Force FullBuffer, 2 = Force FullResampling
     void  SetBufferMode(int mode);
 
     // Forces a specific audio engine to be used.
-    // @param mode 0 = Auto(Default), 1 = Force DirectSound, 2 = Force WASAPI
+    // @param mode 0 = Auto(Default), 1 = Force DirectSound, 2 = Force WASAPI, 3 = Force WaveOut
     void  SetEngineOverride(int mode);
 
 }

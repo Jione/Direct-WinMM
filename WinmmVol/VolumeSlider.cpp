@@ -156,32 +156,39 @@ namespace {
         SendMessageW(g_hwndCmbEngine, CB_RESETCONTENT, 0, 0);
 
         const BOOL isVista = RegistryManager::IsVistaOrLater();
+        EnableWindow(g_hwndCmbEngine, TRUE); // XP도 선택 허용으로 변경
+
         if (!isVista) {
             // XP
-            std::wstring label = Txt(L"UI_ENGINE_DS");
-            AppendDefaultSuffix(label); // "DirectSound Engine (Default)"
-            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)label.c_str());
-            SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, 0, 0);
-            EnableWindow(g_hwndCmbEngine, FALSE);
+            if (isGlobalScope) {
+                // Global(XP): [ DS(Default), WaveOut ]
+                std::wstring s = Txt(L"UI_ENGINE_DS"); AppendDefaultSuffix(s);
+                SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)s.c_str());                // idx0 -> field 0 (Auto=DS default)
+                SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_WAVEOUT"));// idx1 -> field 3
+            }
+            else {
+                // App(XP): [ Follow, DS, WaveOut ]
+                SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_FOLLOW_GLOBAL")); // idx0 -> field 0
+                SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_DS"));     // idx1 -> field 1
+                SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_WAVEOUT"));// idx2 -> field 3
+            }
             return;
         }
 
-        EnableWindow(g_hwndCmbEngine, TRUE);
-
+        // Vista+
         if (isGlobalScope) {
-            // Vista+ Global: [ WASAPI (Default), DirectSound ]
-            {
-                std::wstring s = Txt(L"UI_ENGINE_WASAPI");
-                AppendDefaultSuffix(s);
-                SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)s.c_str()); // idx 0 -> field 2
-            }
-            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_DS")); // idx 1 -> field 1
+            // Global(Vista+): [ WASAPI(Default), DS, WaveOut ]
+            std::wstring s = Txt(L"UI_ENGINE_WASAPI"); AppendDefaultSuffix(s);
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)s.c_str());                   // idx0 -> field 0 (default)
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_DS"));        // idx1 -> field 1
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_WAVEOUT"));   // idx2 -> field 3
         }
         else {
-            // Vista+ App: [ Follows global, WASAPI, DirectSound ]
-            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_FOLLOW_GLOBAL")); // idx 0 -> field 0
-            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_WASAPI")); // idx 1 -> field 2
-            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_DS"));     // idx 2 -> field 1
+            // App(Vista+): [ Follow, WASAPI, DS, WaveOut ]
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_FOLLOW_GLOBAL"));    // idx0 -> field 0
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_WASAPI"));    // idx1 -> field 2
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_DS"));        // idx2 -> field 1
+            SendMessageW(g_hwndCmbEngine, CB_ADDSTRING, 0, (LPARAM)Txt(L"UI_ENGINE_WAVEOUT"));   // idx3 -> field 3
         }
     }
 
@@ -242,27 +249,40 @@ namespace {
         // -------- Engine selection ----------
         const BOOL isVista = RegistryManager::IsVistaOrLater();
         const BOOL isGlobal = g_currentGuid.empty() ? TRUE : FALSE;
-        int engine = RegistryManager::OV_GetEngine(g_curOverride); // field: 0(auto),1(DS),2(WASAPI)
+        int engine = RegistryManager::OV_GetEngine(g_curOverride); // field: 0=Auto(default),1=DS,2=WASAPI,3=WaveOut
         int engineSel = 0;
 
         if (!isVista) {
-            // XP: DS(Default)
-            SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, 0, 0);
-        }
-        else {
+            // XP
             if (isGlobal) {
-                // Vista+ Global UI: [ WASAPI(Default)=idx0 -> field2, DS=idx1 -> field1 ]
-                if (engine == 1) engineSel = 1;      // DS
-                else /* 0(auto) or 2(WASAPI) */ engineSel = 0; // WASAPI(Default)
-                SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, engineSel, 0);
+                // [ DS(Default)=idx0(field0), WaveOut=idx1(field3) ]
+                engineSel = (engine == 3) ? 1 : 0; // 3 -> idx1, others(0/1/2) -> idx0
             }
             else {
-                // Vista+ App UI: [ Follow=idx0->field0, WASAPI=idx1->field2, DS=idx2->field1 ]
+                // App: [ Follow=0->0, DS=1->1, WaveOut=2->3 ]
+                if (engine == 0) engineSel = 0;          // Follow
+                else if (engine == 1) engineSel = 1;          // DS
+                else if (engine == 3) engineSel = 2;          // WaveOut
+                else                  engineSel = 0;
+            }
+            SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, engineSel, 0);
+        }
+        else {
+            // Vista+
+            if (isGlobal) {
+                // [ WASAPI(Default)=idx0(field0), DS=idx1(field1), WaveOut=idx2(field3) ]
+                if (engine == 1) engineSel = 1;
+                else if (engine == 3) engineSel = 2;
+                else                  engineSel = 0; // 0 or 2 -> Default
+            }
+            else {
+                // [ Follow=0->0, WASAPI=1->2, DS=2->1, WaveOut=3->3 ]
                 if (engine == 0) engineSel = 0;
                 else if (engine == 2) engineSel = 1;
-                else /*1*/       engineSel = 2;
-                SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, engineSel, 0);
+                else if (engine == 1) engineSel = 2;
+                else                  engineSel = 3; // 3
             }
+            SendMessageW(g_hwndCmbEngine, CB_SETCURSEL, engineSel, 0);
         }
 
         // -------- Buffer selection ----------
@@ -678,26 +698,44 @@ namespace {
 
             // Engine combo
             if (id == IDC_ENGINE_COMBO && code == CBN_SELCHANGE) {
-                if (IsWindowEnabled(g_hwndCmbEngine)) {
-                    const BOOL isVista = RegistryManager::IsVistaOrLater();
-                    if (isVista) {
-                        int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
-                        const BOOL isGlobal = g_currentGuid.empty() ? TRUE : FALSE;
-                        int fieldEngine = 0; // default to Auto/Follow
+                int sel = (int)SendMessageW((HWND)lParam, CB_GETCURSEL, 0, 0);
+                const BOOL isVista = RegistryManager::IsVistaOrLater();
+                const BOOL isGlobal = g_currentGuid.empty() ? TRUE : FALSE;
 
-                        if (isGlobal) {
-                            fieldEngine = (sel == 1) ? 1 : 0;
-                        }
-                        else {
-                            if (sel == 0) fieldEngine = 0;
-                            else if (sel == 1) fieldEngine = 2;
-                            else               fieldEngine = 1;
-                        }
-                        DWORD ov = ReadTargetOverride();
-                        ov = RegistryManager::OV_WithEngine(ov, fieldEngine);
-                        WriteTargetOverride(ov);
+                int fieldEngine = 0; // default
+
+                if (!isVista) {
+                    // XP
+                    if (isGlobal) {
+                        // [ DS(Default)=idx0->field0, WaveOut=idx1->field3 ]
+                        fieldEngine = (sel == 1) ? 3 : 0;
+                    }
+                    else {
+                        // [ Follow=0->0, DS=1->1, WaveOut=2->3 ]
+                        if (sel == 0) fieldEngine = 0;
+                        else if (sel == 1) fieldEngine = 1;
+                        else               fieldEngine = 3;
                     }
                 }
+                else {
+                    // Vista+
+                    if (isGlobal) {
+                        // [ WASAPI(Default)=0->0, DS=1->1, WaveOut=2->3 ]
+                        fieldEngine = (sel == 1) ? 1 : (sel == 2 ? 3 : 0);
+                    }
+                    else {
+                        // [ Follow=0->0, WASAPI=1->2, DS=2->1, WaveOut=3->3 ]
+                        if (sel == 0) fieldEngine = 0;
+                        else if (sel == 1) fieldEngine = 2;
+                        else if (sel == 2) fieldEngine = 1;
+                        else               fieldEngine = 3;
+                    }
+                }
+
+                DWORD ov = ReadTargetOverride();
+                ov = RegistryManager::OV_WithEngine(ov, fieldEngine);
+                WriteTargetOverride(ov);
+
                 SendMessageW((HWND)lParam, CB_SHOWDROPDOWN, FALSE, 0);
                 SetFocus(hwnd);
                 return 0;

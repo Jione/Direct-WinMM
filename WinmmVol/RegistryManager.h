@@ -25,7 +25,7 @@ namespace RegistryManager {
     constexpr DWORD OV_BUFFER_SHIFT = 8;                // 0=Auto,1=Streaming,2=Full,3=Resample
     constexpr DWORD OV_BUFFER_MASK = 3u << OV_BUFFER_SHIFT;
 
-    constexpr DWORD OV_ENGINE_SHIFT = 10;               // 0=Auto,1=DS,2=WASAPI
+    constexpr DWORD OV_ENGINE_SHIFT = 10;               // 0=Auto,1=DS,2=WASAPI,3=WaveOut
     constexpr DWORD OV_ENGINE_MASK = 3u << OV_ENGINE_SHIFT;
 
     // Default = 0x00000064 (vol=100, mute=0, buffer=0, engine=0)
