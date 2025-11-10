@@ -972,7 +972,21 @@ namespace AudioEngine {
     }
 
     void StopAll() {
-        // Stops playback. Keeps gStatusTrack/gStatusPosMs cached (for MCI query after stop).
+        int lastTrack = 1;
+        DWORD lastMs = 0;
+
+        if (gEverPlayed && !gIsCued) {
+            GetCurrentTrackPosition(&lastTrack, &lastMs);
+        }
+        else if (gIsCued) {
+            lastTrack = gCuedTrack;
+            lastMs = gCuedMs;
+        }
+        else if (gEverPlayed) {
+            lastTrack = gStatusTrack;
+            lastMs = 0;
+        }
+
         Engine_Stop();
 
         // --- Clear Full Buffer State ---
@@ -983,11 +997,21 @@ namespace AudioEngine {
         // --- Clear Streaming State ---
         gDecCur.Close(); gDecCurTrack = -1;
         gSegCount = 0; gSegIndex = 0; gSegCursor = 0;
-
-        // --- Clear ToTrack State ---
-        gRangeToTrack = 1; gRangeToMs = 0;
-
         ZeroMemory(&gFmt_Stream, sizeof(gFmt_Stream)); gFmtInit_Stream = FALSE;
+
+        // --- Clear Range State ---
+        gRangeToTrack = 1; gRangeToMs = 0;
+        gRangeTotalMs = 0; // Clear total range
+
+        // Set the Cued state to the last known position
+        gIsCued = TRUE;
+        gCuedTrack = lastTrack;
+        gCuedMs = lastMs;
+
+        // Update global tracks to match the cued position
+        gCurTrack = lastTrack;
+        gStatusTrack = lastTrack;
+        gRangeStartMs = lastMs;
     }
 
     void Pause() { Engine_Pause(); }
