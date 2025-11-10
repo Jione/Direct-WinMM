@@ -156,7 +156,7 @@ namespace {
         SendMessageW(g_hwndCmbEngine, CB_RESETCONTENT, 0, 0);
 
         const BOOL isVista = RegistryManager::IsVistaOrLater();
-        EnableWindow(g_hwndCmbEngine, TRUE); // XP도 선택 허용으로 변경
+        EnableWindow(g_hwndCmbEngine, TRUE);
 
         if (!isVista) {
             // XP
