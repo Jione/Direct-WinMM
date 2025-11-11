@@ -68,6 +68,9 @@
     <ClInclude Include="UiLang.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\include\version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="Resource\icon.ico">

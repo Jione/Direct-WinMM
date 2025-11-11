@@ -1,5 +1,41 @@
 #include <windows.h>
 #include "resource.h"
+#include "version.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION VER_MAJOR,VER_MINOR,VER_PATCH,VER_BUILD
+ PRODUCTVERSION VER_MAJOR,VER_MINOR,VER_PATCH,VER_BUILD
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      VER_COMPANY_NAME
+            VALUE "FileDescription",  "Direct-Winmm CD-DA Volume Control"
+            VALUE "FileVersion",      VER_FILE_VERSION_STR
+            VALUE "InternalName",     "WinmmVol.exe"
+            VALUE "OriginalFilename", "WinmmVol.exe"
+            VALUE "ProductName",      VER_PRODUCT_NAME
+            VALUE "ProductVersion",   VER_PRODUCT_VERSION_STR
+            VALUE "LegalCopyright",   "No Copyright - CC0 1.0 Public Domain Dedication"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
 
 // Icon
 IDI_APPICON ICON DISCARDABLE "Resource\icon.ico"

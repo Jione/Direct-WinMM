@@ -83,6 +83,9 @@
     <ClInclude Include="AudioEngineWaveOut.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\include\version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="WinmmStubs.x64.asm">
@@ -96,5 +99,10 @@
     <None Include="Winmm.def">
       <Filter>Source Files</Filter>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="resource.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

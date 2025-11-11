@@ -204,6 +204,7 @@
     <ClCompile Include="WinmmStubs.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\include\version.h" />
     <ClInclude Include="AudioDecoder.h" />
     <ClInclude Include="AudioEngineAdapter.h" />
     <ClInclude Include="AudioEngineDirectSound.h" />
@@ -251,6 +252,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Winmm.def" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="resource.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
