@@ -333,7 +333,8 @@ void WaveOutAudioEngine::Stop() {
     StopThread();
 
     if (hwo) {
-        waveOutReset(hwo);
+        // A hang occurs when waveOutReset is called during program termination; replaced with waveOutPause.
+        waveOutPause(hwo);
         // Unprepare and free blocks
         for (int i = 0; i < RING_BLOCKS; ++i) {
             if (headers[i].dwFlags & WHDR_PREPARED) waveOutUnprepareHeader(hwo, &headers[i], sizeof(WAVEHDR));

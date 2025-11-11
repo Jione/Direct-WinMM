@@ -84,10 +84,19 @@ BOOL DSoundAudioEngine::Initialize(HWND initWindow) {
 void DSoundAudioEngine::Shutdown() {
     Stop();
     if (stopEvent) { CloseHandle(stopEvent); stopEvent = NULL; }
-    if (primary) { primary->Release(); primary = NULL; }
-    if (ds) { ds->Release(); ds = NULL; }
+    if (ds && hwnd && IsWindow(hwnd)) {
+        ds->SetCooperativeLevel(hwnd, DSSCL_NORMAL);
+        if (primary) { primary->Stop(); primary->Release(); primary = NULL; }
+        ds->Release();
+        ds = NULL;
+    }
+    else {
+        primary = NULL;
+        ds = NULL;
+    }
     ResetState();
 }
+
 void DSoundAudioEngine::ResetState() {
     volume01 = 1.0f; samplerate = 0; channels = 0;
     lastPlayCursor = 0; totalBytesPlayed = 0;
