@@ -910,10 +910,17 @@ namespace VolumeSlider {
     }
 
     void EnsureSelectionLiveOrGlobal() {
-        if (g_currentGuid.empty()) return; // already Global
+        // If no selection, nothing to do
+        if (g_currentGuid.empty()) return;
+
+        // When "Show all apps" is enabled, allow selecting non-live apps.
+        // Do not force back to Global in this mode.
+        if (g_showAllApps) return;
+
+        // In normal mode (live-only), fall back to Global if the app is not live.
         if (!RegistryManager::IsAppLive(g_currentGuid)) {
             if (IsWindow(g_hwndPanel)) {
-                PopulateAppCombo();
+                PopulateAppCombo(); // rebuild list without dead app
             }
             SelectGlobal();
         }
