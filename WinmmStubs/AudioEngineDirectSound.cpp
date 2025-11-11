@@ -5,6 +5,11 @@
 #pragma comment(lib, "dsound.lib")
 #pragma comment(lib, "dxguid.lib")
 
+// External dependency: Force WaveOut Audio Engine
+namespace PreferenceLoader {
+    BOOL ForceWaveOutEngineForApp();
+}
+
 static inline LONG ClampLONG(LONG v, LONG lo, LONG hi) {
     if (v < lo) return lo; if (v > hi) return hi; return v;
 }
@@ -44,6 +49,15 @@ static inline LONG CalculatePan(float left, float right) {
     return ClampLONG(pan, DSBPAN_LEFT, DSBPAN_RIGHT);
 }
 
+static inline void ForceWaveOutOnDirectSoundError(HRESULT hr) {
+    // DSERR_PRIOLEVELNEEDED: need DSSCL_PRIORITY to set primary format
+    // DSERR_ALLOCATED: often indicates exclusive-like conflicts
+    if (hr == DSERR_PRIOLEVELNEEDED || hr == DSERR_ALLOCATED) {
+        // write Engine=WaveOut to app override key
+        PreferenceLoader::ForceWaveOutEngineForApp();
+    }
+}
+
 DSoundAudioEngine::DSoundAudioEngine()
     : ds(NULL), primary(NULL), secondary(NULL),
     thread(NULL), stopEvent(NULL), running(0), paused(0),
@@ -68,7 +82,9 @@ BOOL DSoundAudioEngine::Initialize(HWND initWindow) {
     if (FAILED(DirectSoundCreate8(NULL, &ds, NULL))) return FALSE;
 
     hwnd = initWindow ? initWindow : GetDesktopWindow();
-    if (FAILED(ds->SetCooperativeLevel(hwnd, DSSCL_PRIORITY))) {
+    HRESULT hr = ds->SetCooperativeLevel(hwnd, DSSCL_PRIORITY);
+    if (FAILED(hr)) {
+        ForceWaveOutOnDirectSoundError(hr); // trigger WaveOut override on DS conflict
         ds->Release(); ds = NULL; return FALSE;
     }
     if (!CreatePrimary()) {
@@ -131,7 +147,10 @@ BOOL DSoundAudioEngine::CreatePrimary() {
     desc.dwSize = sizeof(desc);
     desc.dwFlags = DSBCAPS_PRIMARYBUFFER | DSBCAPS_CTRLVOLUME;
     HRESULT hr = ds->CreateSoundBuffer(&desc, &primary, NULL);
-    if (FAILED(hr)) return FALSE;
+    if (FAILED(hr)) {
+        ForceWaveOutOnDirectSoundError(hr);
+        return FALSE;
+    }
 
     // Default format: 48kHz, S16, Stereo
     WAVEFORMATEX wfx; ZeroMemory(&wfx, sizeof(wfx));
@@ -142,7 +161,11 @@ BOOL DSoundAudioEngine::CreatePrimary() {
     wfx.nBlockAlign = (wfx.nChannels * wfx.wBitsPerSample) / 8;
     wfx.nAvgBytesPerSec = wfx.nSamplesPerSec * wfx.nBlockAlign;
 
-    primary->SetFormat(&wfx);
+    hr = primary->SetFormat(&wfx);
+    if (FAILED(hr)) {
+        ForceWaveOutOnDirectSoundError(hr); // DSERR_PRIOLEVELNEEDED likely here
+        return FALSE;
+    }
     return TRUE;
 }
 
@@ -177,7 +200,10 @@ BOOL DSoundAudioEngine::CreateSecondary(UINT sampleRate, UINT channels) {
     desc.lpwfxFormat = &wfx;
 
     HRESULT hr = ds->CreateSoundBuffer(&desc, &secondary, NULL);
-    if (FAILED(hr)) return FALSE;
+    if (FAILED(hr)) {
+        ForceWaveOutOnDirectSoundError(hr); // treat exclusive-like conflicts
+        return FALSE;
+    }
 
     writeCursor = 0;
 
@@ -224,6 +250,8 @@ void DSoundAudioEngine::ThreadLoop() {
     // Fill initial data and start loop
     FillInitial();
     if (secondary) secondary->Play(0, 0, DSBPLAY_LOOPING);
+    int tryCount = 16;
+    BOOL lastLost = FALSE;
 
     for (;;) {
         DWORD wr = WaitForSingleObject(stopEvent, 15);
@@ -242,8 +270,12 @@ void DSoundAudioEngine::ThreadLoop() {
         // Accumulate approximate ms (fallback)
         if (secondary && wfx.nAvgBytesPerSec > 0) {
             DWORD playCursor = 0;
-            if (SUCCEEDED(secondary->GetCurrentPosition(&playCursor, NULL))) {
-
+            HRESULT hr = secondary->GetCurrentPosition(&playCursor, NULL);
+            if (SUCCEEDED(hr)) {
+                if (lastLost) {
+                    lastLost = FALSE;
+                    tryCount = 16;
+                }
                 DWORD bytesPlayedThisTick = 0;
                 if (playCursor < lastPlayCursor) {
                     bytesPlayedThisTick = (bufferBytes - lastPlayCursor) + playCursor;
@@ -254,6 +286,13 @@ void DSoundAudioEngine::ThreadLoop() {
 
                 totalBytesPlayed += (ULONGLONG)bytesPlayedThisTick;
                 lastPlayCursor = playCursor;
+            }
+            else if (hr == DSERR_BUFFERLOST) {
+                dprintf("Detect Buffer Lost, Try count=%d", tryCount);
+                lastLost = TRUE;
+                if (--tryCount < 0) {
+                    PreferenceLoader::ForceWaveOutEngineForApp();
+                }
             }
         }
     }

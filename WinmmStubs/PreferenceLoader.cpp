@@ -134,6 +134,11 @@ namespace {
         if (v < 0) v = 0; if (v > 100) v = 100;
         return (ov & ~OV_VOL_MASK) | ((DWORD)v << OV_VOL_SHIFT);
     }
+    // set engine field (0..3), keep other fields intact
+    static inline DWORD OV_WithEngine(DWORD ov, int e) {
+        if (e < 0) e = 0; if (e > 3) e = 3;
+        return (ov & ~OV_ENGINE_MASK) | ((DWORD)e << OV_ENGINE_SHIFT);
+    }
 
     // compute effective from two overrides
     static DWORD ComputeEffective(DWORD g, DWORD a) {
@@ -417,4 +422,24 @@ namespace PreferenceLoader {
         if (gGlobal) { RegCloseKey(gGlobal); gGlobal = NULL; }
         if (gRoot) { RegCloseKey(gRoot);   gRoot = NULL; }
     }
+
+    // Write Engine=WaveOut (3) into app override and notify GUI if present
+    BOOL ForceWaveOutEngineForApp() {
+        // Ensure keys exist
+        if (!EnsureRootAndGlobal()) return FALSE;
+        if (!EnsureAppKey())       return FALSE;
+
+        DWORD ov = ReadAppOverride();
+        DWORD newOv = OV_WithEngine(ov, 3); // 3 = WaveOut
+        if (!WriteDWORD(gApp, VAL_OVERRIDE, newOv)) return FALSE;
+
+        // Touch last seen for visibility and hint GUI to refresh
+        TouchLastSeen();
+        HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
+        if (hwnd) PostMessageW(hwnd, WM_UPDATE_APP, 0, 0);
+
+        // WatcherThreadProc is armed with RegNotify...; it will apply the change.
+        return TRUE;
+    }
+
 } // namespace PreferenceLoader
