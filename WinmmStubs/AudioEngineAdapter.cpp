@@ -912,13 +912,14 @@ namespace AudioEngine {
 
     // Sets the audio engine override.
     void SetEngineOverride(int mode) {
+        if (!gInited) gVistaOrLater = IsVistaOrLater();
         if (mode < 0 || mode > 3) mode = 0;
         if (mode == gEngineOverride) return;
         
         int prevEngine = gEngineOverride;
         int newEngine = mode;
         if (gEngineOverride == 0) prevEngine = gVistaOrLater ? 2 : 1;
-        if (mode == 0) newEngine = mode ? 2 : 1;
+        if (mode == 0) newEngine = gVistaOrLater ? 2 : 1;
         if (prevEngine == newEngine) return;
         
         if (gInited) Shutdown();
