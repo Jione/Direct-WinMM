@@ -178,6 +178,7 @@
     <ClCompile Include="TrayIcon.cpp" />
     <ClCompile Include="UiLang.cpp" />
     <ClCompile Include="VolumeSlider.cpp" />
+    <ClCompile Include="WineCompat.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\include\version.h" />
@@ -189,6 +190,7 @@
     <ClInclude Include="UiLang.h" />
     <ClInclude Include="UiTheme.h" />
     <ClInclude Include="VolumeSlider.h" />
+    <ClInclude Include="WineCompat.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="resource.rc" />

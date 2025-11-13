@@ -4,6 +4,7 @@
 #include "CustomSlider.h"
 #include "TrayIcon.h"
 #include "UiLang.h"
+#include "WineCompat.h"
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <shellapi.h>
@@ -41,6 +42,9 @@ namespace {
 
     static BOOL g_isMuted     = FALSE;
     static BOOL g_showAllApps = FALSE;
+
+    static HFONT g_hFontSpecial = NULL;
+
 
     // current target (empty = Global, otherwise GUID)
     static std::wstring g_currentGuid;
@@ -445,17 +449,29 @@ namespace {
 
         // when Show All Apps is OFF, append a special tail item
         if (!g_showAllApps && IsWindow(g_hwndCmbApp)) {
-            std::wstring tmp, label = UILang::Get(L"UI_SHOW_ALL_APPS", tmp);
-
-            int tail = (int)SendMessageW(g_hwndCmbApp, CB_ADDSTRING, 0, (LPARAM)label.c_str());
-            if (tail >= 0) {
+            // Show All Apps...
+            std::wstring tmp1, label1 = UILang::Get(L"UI_SHOW_ALL_APPS", tmp1);
+            int tail1 = (int)SendMessageW(g_hwndCmbApp, CB_ADDSTRING, 0, (LPARAM)label1.c_str());
+            if (tail1 >= 0) {
                 AppItem* sai = new AppItem();
                 sai->isSpecial = TRUE;
                 sai->guid = L"#SHOW_ALL_APPS#";
-                sai->display = label;
-                // no icon for sentinel
-                SendMessageW(g_hwndCmbApp, CB_SETITEMDATA, tail, (LPARAM)sai);
+                sai->display = label1;
+                SendMessageW(g_hwndCmbApp, CB_SETITEMDATA, tail1, (LPARAM)sai);
                 g_items.push_back(sai);
+            }
+
+            // Patch .exe file (for Wine)
+            std::wstring tmp2, label2 = UILang::Get(L"UI_PATCH_FOR_WINE", tmp2);
+            int tail2 = (int)SendMessageW(g_hwndCmbApp, CB_ADDSTRING, 0, (LPARAM)label2.c_str());
+            if (tail2 >= 0) {
+                AppItem* wpi = new AppItem();
+                wpi->isSpecial = TRUE;
+                wpi->guid = L"#PATCH_FOR_WINE#";
+                wpi->display = label2;
+                // no icon for sentinel
+                SendMessageW(g_hwndCmbApp, CB_SETITEMDATA, tail2, (LPARAM)wpi);
+                g_items.push_back(wpi);
             }
         }
     }
@@ -484,18 +500,7 @@ namespace {
         HDC hdc = dis->hDC;
         RECT rc = dis->rcItem;
 
-        // use system colors so it matches other standard combos
-        const BOOL isEditField = (dis->itemID == (UINT)-1);
-        COLORREF bg = isEditField
-            ? GetSysColor(COLOR_WINDOW)
-            : ((dis->itemState & ODS_SELECTED) ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_WINDOW));
-        COLORREF fg = isEditField
-            ? GetSysColor(COLOR_WINDOWTEXT)
-            : ((dis->itemState & ODS_SELECTED) ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
-
-        HBRUSH hb = CreateSolidBrush(bg);
-        FillRect(hdc, &rc, hb);
-        DeleteObject(hb);
+        BOOL isSpecial = FALSE;
 
         // Resolve AppItem* safely
         AppItem* ai = nullptr;
@@ -510,15 +515,52 @@ namespace {
                 if (ai == (AppItem*)0xFFFFFFFF) ai = nullptr;
             }
         }
+        if (ai) {
+            if (ai->isSpecial) isSpecial = TRUE;
+            else if (ai->guid == L"#SHOW_ALL_APPS#" || ai->guid == L"#PATCH_FOR_WINE#") isSpecial = TRUE;
+        }
+
+        HFONT hOldFont = NULL;
+        if (isSpecial && g_hFontSpecial) {
+            HFONT hOldFont = (HFONT)SelectObject(hdc, g_hFontSpecial);
+        }
+        
+        // use system colors so it matches other standard combos
+        const BOOL isEditField = (dis->itemID == (UINT)-1);
+        COLORREF bg = isEditField
+            ? GetSysColor(COLOR_WINDOW)
+            : ((dis->itemState & ODS_SELECTED) ? GetSysColor(COLOR_HIGHLIGHT) : GetSysColor(COLOR_WINDOW));
+        COLORREF fg = isEditField
+            ? GetSysColor(COLOR_WINDOWTEXT)
+            : ((dis->itemState & ODS_SELECTED) ? GetSysColor(COLOR_HIGHLIGHTTEXT) : GetSysColor(COLOR_WINDOWTEXT));
+
+        if (!isEditField && isSpecial) {
+            if (dis->itemState & ODS_SELECTED) {
+                bg = RGB(43, 43, 43);
+                fg = RGB(240, 240, 240);
+            }
+            else {
+                bg = RGB(200, 200, 200);
+                fg = RGB(43, 43, 43);
+            }
+        }
+        HBRUSH hb = CreateSolidBrush(bg);
+        FillRect(hdc, &rc, hb);
+        DeleteObject(hb);
 
         // layout
         int x = rc.left + 4;
         int y = rc.top + ((rc.bottom - rc.top) - L.appIconH) / 2;
 
-        if (ai && ai->hIcon) {
-            DrawIconEx(hdc, x, y, ai->hIcon, L.appIconW, L.appIconH, 0, NULL, DI_NORMAL);
+        if (isSpecial) {
+            x += L.appIconGap * 2;
         }
-        x += L.appIconW + L.appIconGap;
+        else {
+            if (ai && ai->hIcon) {
+                DrawIconEx(hdc, x, y, ai->hIcon, L.appIconW, L.appIconH, 0, NULL, DI_NORMAL);
+            }
+            x += L.appIconW + L.appIconGap;
+        }
 
         // text
         SetBkMode(hdc, TRANSPARENT);
@@ -534,6 +576,8 @@ namespace {
         RECT textRect = { x, rc.top, rc.right - 4, rc.bottom };
         DrawTextW(hdc, text, -1, &textRect,
             DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+
+        if (hOldFont) SelectObject(hdc, hOldFont);
     }
 
     static void MeasureComboItem(MEASUREITEMSTRUCT* mis) {
@@ -617,6 +661,14 @@ namespace {
             HFONT hFont = CreateUIFont(-13, FW_MEDIUM);
             HFONT hLabelFont = CreateUIFont(-15, FW_BOLD);
             HFONT hNumFont = CreateUIFont(-18, FW_BOLD);
+            {
+                LOGFONTW lf = {};
+                lf.lfHeight = -13;
+                lf.lfWeight = FW_BOLD;
+                lf.lfItalic = true;
+                lstrcpyW(lf.lfFaceName, L"Segoe UI");
+                g_hFontSpecial = CreateFontIndirectW(&lf);
+            }
 
             // load speaker, min, close icons
             {
@@ -855,23 +907,6 @@ namespace {
                 return 0;
             }
 
-            if (id == IDC_APP_COMBO && code == CBN_SELCHANGE) {
-                int sel = (int)SendMessageW(g_hwndCmbApp, CB_GETCURSEL, 0, 0);
-                AppItem* ai = (AppItem*)SendMessageW(g_hwndCmbApp, CB_GETITEMDATA, sel, 0);
-                if (ai) {
-                    // Special tail: toggle "Show all apps" and rebuild immediately
-                    if (ai->isSpecial) {
-                        TrayIcon::SetShowAllApps(TRUE);
-                        return 0; // IMPORTANT: do not fall through
-                    }
-                    g_currentGuid = ai->guid;
-                    RebuildCombosForScope();
-                    SyncControlsFromTarget();
-                    TrayIcon::RefreshForTarget(g_currentGuid);
-                }
-                return 0;
-            }
-
             // speaker icon click -> toggle mute on target override
             if (id == IDC_VOLUMEICON && code == STN_CLICKED) {
                 DWORD ov = ReadTargetOverride();
@@ -887,12 +922,22 @@ namespace {
                 int sel = (int)SendMessageW(g_hwndCmbApp, CB_GETCURSEL, 0, 0);
                 AppItem* ai = (AppItem*)SendMessageW(g_hwndCmbApp, CB_GETITEMDATA, sel, 0);
                 if (ai) {
+                    // Special tail handlers
                     if (ai->isSpecial) {
-                        TrayIcon::SetShowAllApps(TRUE);
-                        return 0; // IMPORTANT: avoid overriding selection after rebuild
+                        if (ai->guid == L"#SHOW_ALL_APPS#") {
+                            TrayIcon::SetShowAllApps(TRUE);
+                        }
+                        else if (ai->guid == L"#PATCH_FOR_WINE#") {
+                            // run Wine patch flow; do not change selection/target
+                            WineCompat::SelectFile();
+                        }
+                        return 0; // IMPORTANT: stop here
                     }
-                    g_currentGuid = ai->guid; // empty if Global
+                    // Normal row: switch target
+                    g_currentGuid = ai->guid;
+                    RebuildCombosForScope();
                     SyncControlsFromTarget();
+                    TrayIcon::RefreshForTarget(g_currentGuid);
                 }
                 return 0;
             }
@@ -1009,6 +1054,7 @@ namespace {
             g_hwndLblBuffer = g_hwndCmbBuffer = NULL;
             g_hwndBtnClose = NULL;
             g_hIconClose = g_hIconMute = g_hIconLvl1 = g_hIconLvl2 = g_hIconLvl3 = NULL;
+            if (g_hFontSpecial) { DeleteObject(g_hFontSpecial); g_hFontSpecial = NULL; }
             return 0;
         }
         return DefWindowProcW(hwnd, msg, wParam, lParam);
