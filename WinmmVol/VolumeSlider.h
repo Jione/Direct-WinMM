@@ -22,6 +22,8 @@ namespace VolumeSlider {
 
     void SelectGlobal();
     void EnsureSelectionLiveOrGlobal();
+
     std::wstring GetCurrentGuid();
+    void SetCurrentGuid(const std::wstring& guid);
 
 } // namespace VolumeSlider

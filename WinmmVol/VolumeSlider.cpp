@@ -7,6 +7,7 @@
 #include <commctrl.h>
 #include <shlwapi.h>
 #include <shellapi.h>
+#include <algorithm>
 
 #pragma comment(lib, "Comctl32.lib")
 #pragma comment(lib, "Shell32.lib")
@@ -18,30 +19,34 @@ namespace {
     static const wchar_t* SLIDER_WINDOW_CLASS = L"WinMMStubsVolumePanel";
 
     // Window + child handles
-    static HWND g_hwndPanel = NULL;
-    static HWND g_hwndIcon = NULL; // speaker icon
-    static HWND g_hwndValue = NULL;
-    static HWND g_hwndSlider = NULL; // CustomSlider
-    static HWND g_hwndLblApp = NULL;
-    static HWND g_hwndCmbApp = NULL;
+    static HWND g_hwndPanel     = NULL;
+    static HWND g_hwndIcon      = NULL; // speaker icon
+    static HWND g_hwndValue     = NULL;
+    static HWND g_hwndSlider    = NULL; // CustomSlider
+    static HWND g_hwndLblApp    = NULL;
+    static HWND g_hwndCmbApp    = NULL;
     static HWND g_hwndLblVolume = NULL;
     static HWND g_hwndLblEngine = NULL;
     static HWND g_hwndCmbEngine = NULL;
     static HWND g_hwndLblBuffer = NULL;
     static HWND g_hwndCmbBuffer = NULL;
+    static HWND g_hwndBtnClose  = NULL; // close button
 
     // Icons
-    static HICON g_hIconMute = NULL;
-    static HICON g_hIconLvl1 = NULL;
-    static HICON g_hIconLvl2 = NULL;
-    static HICON g_hIconLvl3 = NULL;
+    static HICON g_hIconMute  = NULL;
+    static HICON g_hIconLvl1  = NULL;
+    static HICON g_hIconLvl2  = NULL;
+    static HICON g_hIconLvl3  = NULL;
+    static HICON g_hIconClose = NULL;
 
-    static BOOL g_isMuted = FALSE;
+    static BOOL g_isMuted     = FALSE;
     static BOOL g_showAllApps = FALSE;
 
     // current target (empty = Global, otherwise GUID)
     static std::wstring g_currentGuid;
     static DWORD g_curOverride = RegistryManager::OV_DEFAULT; // cache of current target's override
+
+    static const UINT_PTR kSubId_LabelDrag = 0xD0A0;
 
     // App combo item payload
     struct AppItem {
@@ -49,7 +54,8 @@ namespace {
         std::wstring exePath;    // for app rows
         std::wstring display;    // caption(filename)
         HICON        hIcon;      // per-row small icon
-        AppItem() : hIcon(NULL) {}
+        BOOL         isSpecial;
+        AppItem() : hIcon(NULL), isSpecial(FALSE) {}
     };
 
     static std::vector<AppItem*> g_items; // managed; free on destroy
@@ -379,7 +385,21 @@ namespace {
         // live apps
         std::vector<RegistryManager::AppEntry> apps;
         RegistryManager::EnumApps(apps, g_showAllApps ? FALSE : TRUE);
+
+        std::sort(apps.begin(), apps.end(),
+            [](const RegistryManager::AppEntry& a, const RegistryManager::AppEntry& b) {
+                if (a.live != b.live) return a.live > b.live;            // live first
+                return a.lastSeen > b.lastSeen;                          // most recently seen first
+            });
+
         for (auto& e : apps) {
+            // When "Show all apps" is ON, hide items whose executable path does not exist.
+            if (g_showAllApps) {
+                if (e.exePath.empty() || !PathFileExistsW(e.exePath.c_str())) {
+                    continue;
+                }
+            }
+
             AppItem* ai = new AppItem();
             ai->guid = e.guid;
             ai->exePath = e.exePath;
@@ -422,6 +442,22 @@ namespace {
             g_currentGuid.clear();
         }
         SendMessageW(g_hwndCmbApp, CB_SETCURSEL, sel, 0);
+
+        // when Show All Apps is OFF, append a special tail item
+        if (!g_showAllApps && IsWindow(g_hwndCmbApp)) {
+            std::wstring tmp, label = UILang::Get(L"UI_SHOW_ALL_APPS", tmp);
+
+            int tail = (int)SendMessageW(g_hwndCmbApp, CB_ADDSTRING, 0, (LPARAM)label.c_str());
+            if (tail >= 0) {
+                AppItem* sai = new AppItem();
+                sai->isSpecial = TRUE;
+                sai->guid = L"#SHOW_ALL_APPS#";
+                sai->display = label;
+                // no icon for sentinel
+                SendMessageW(g_hwndCmbApp, CB_SETITEMDATA, tail, (LPARAM)sai);
+                g_items.push_back(sai);
+            }
+        }
     }
 
     // Sync all controls from current target
@@ -505,6 +541,73 @@ namespace {
         mis->itemHeight = (L.comboH > (L.appIconH + 4)) ? L.comboH : (L.appIconH + 4);
     }
 
+    // Return TRUE if pt (client coords) is inside rc
+    static BOOL PtIn(const RECT& rc, POINT pt) {
+        return (pt.x >= rc.left && pt.x < rc.right && pt.y >= rc.top && pt.y < rc.bottom);
+    }
+
+    // Get child window rect in client coords (returns FALSE if hwnd invalid)
+    static BOOL GetChildRectClient(HWND hParent, HWND hChild, RECT& outRc) {
+        if (!IsWindow(hParent) || !IsWindow(hChild)) return FALSE;
+        RECT r; if (!GetWindowRect(hChild, &r)) return FALSE;
+        POINT tl = { r.left, r.top }, br = { r.right, r.bottom };
+        ScreenToClient(hParent, &tl); ScreenToClient(hParent, &br);
+        outRc.left = tl.x; outRc.top = tl.y; outRc.right = br.x; outRc.bottom = br.y;
+        return TRUE;
+    }
+
+    // Decide if a drag should start from this client point
+    static BOOL ShouldStartDragFrom(POINT ptClient) {
+        // Determine dynamic title band height = bottom of title buttons (+ small margin)
+        int titleBottom = 0;
+        RECT rcBtn;
+        if (GetChildRectClient(g_hwndPanel, g_hwndBtnClose, rcBtn)) {
+            if (rcBtn.bottom > titleBottom) titleBottom = rcBtn.bottom;
+        }
+        if (titleBottom == 0) {
+            // no buttons yet; fall back to a thin top band
+            titleBottom = 22;
+        }
+        titleBottom += 2; // small margin below buttons
+
+        RECT rcDrag = { 0, 0, L.width, titleBottom };
+
+        // Exclude the interactive button rectangles
+        RECT rcClose;
+        if (GetChildRectClient(g_hwndPanel, g_hwndBtnClose, rcClose) && PtIn(rcClose, ptClient)) return FALSE;
+
+        // Do not start drag when clicking on any child within the band (e.g., if a control overlaps)
+        HWND hChild = ChildWindowFromPointEx(g_hwndPanel, ptClient, CWP_SKIPINVISIBLE | CWP_SKIPDISABLED);
+        if (hChild && hChild != g_hwndPanel && PtIn(rcDrag, ptClient)) {
+            // allow drag only if the hit is the panel itself (not a child)
+            POINT pt2 = ptClient;
+            HWND hHit = ChildWindowFromPointEx(g_hwndPanel, pt2, CWP_ALL);
+            if (hHit && hHit != g_hwndPanel) return FALSE;
+        }
+
+        return PtIn(rcDrag, ptClient) ? TRUE : FALSE;
+    }
+
+    // Label subclass procedure (for dragging IDC_LABEL_APP)
+    static LRESULT CALLBACK LabelDragSubclassProc(
+        HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam,
+        UINT_PTR id, DWORD_PTR data)
+    {
+        switch (msg) {
+        case WM_LBUTTONDOWN: {
+            HWND hParent = GetParent(hWnd);
+            if (IsWindow(hParent)) {
+                POINT pt; GetCursorPos(&pt); // screen coords
+                ReleaseCapture();
+                SendMessageW(hParent, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+                return 0;
+            }
+            break;
+        }
+        }
+        return DefSubclassProc(hWnd, msg, wParam, lParam);
+    }
+
     // Window procedure --------------------------------------------------------
 
     LRESULT CALLBACK PanelWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -515,14 +618,25 @@ namespace {
             HFONT hLabelFont = CreateUIFont(-15, FW_BOLD);
             HFONT hNumFont = CreateUIFont(-18, FW_BOLD);
 
-            // load speaker icons
+            // load speaker, min, close icons
             {
                 HINSTANCE hInst = GetModuleHandleW(NULL);
-                g_hIconMute = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_MUTE), IMAGE_ICON, L.volIconW, L.volIconH, LR_DEFAULTCOLOR);
-                g_hIconLvl1 = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL1), IMAGE_ICON, L.volIconW, L.volIconH, LR_DEFAULTCOLOR);
-                g_hIconLvl2 = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL2), IMAGE_ICON, L.volIconW, L.volIconH, LR_DEFAULTCOLOR);
-                g_hIconLvl3 = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL3), IMAGE_ICON, L.volIconW, L.volIconH, LR_DEFAULTCOLOR);
+                g_hIconMute  = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_MUTE), IMAGE_ICON, L.volIconW, L.volIconH, LR_DEFAULTCOLOR);
+                g_hIconLvl1  = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL1), IMAGE_ICON, L.volIconW, L.volIconH, LR_DEFAULTCOLOR);
+                g_hIconLvl2  = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL2), IMAGE_ICON, L.volIconW, L.volIconH, LR_DEFAULTCOLOR);
+                g_hIconLvl3  = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_SPEAKER_LVL3), IMAGE_ICON, L.volIconW, L.volIconH, LR_DEFAULTCOLOR);
+                g_hIconClose = (HICON)LoadImageW(hInst, MAKEINTRESOURCEW(IDI_BTN_CLOSE), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
             }
+
+            // Create custom title buttons at top-right
+            constexpr int btnW = 20;
+            constexpr int btnH = 20;
+            constexpr int topY = 6;
+
+            g_hwndBtnClose = CreateWindowExW(0, L"BUTTON", L"",
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                (L.width - topY - btnW), topY, btnW, btnH,
+                hwnd, (HMENU)IDC_BTN_CLOSE, GetModuleHandle(NULL), NULL);
 
             int x = L.padX;
             int y = L.padY;
@@ -538,10 +652,23 @@ namespace {
 
             // owner-draw combo for app list
             g_hwndCmbApp = CreateWindowExW(0, L"COMBOBOX", L"",
-                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS,
+                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP | CBS_OWNERDRAWFIXED | WS_VSCROLL | CBS_HASSTRINGS,
                 x, y, L.comboW, L.comboH + 240,
                 hwnd, (HMENU)IDC_APP_COMBO, GetModuleHandle(NULL), NULL);
             if (hFont) SendMessageW(g_hwndCmbApp, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+            {
+                HWND hLblApp = GetDlgItem(hwnd, IDC_LABEL_APP);
+                if (IsWindow(hLblApp)) {
+                    // make sure it will send/receive mouse messages as a child control
+                    LONG st = GetWindowLongW(hLblApp, GWL_STYLE);
+                    st |= SS_NOTIFY; // optional but safe to enable
+                    SetWindowLongW(hLblApp, GWL_STYLE, st);
+
+                    // install subclass to start window drag on LButtonDown
+                    SetWindowSubclass(hLblApp, LabelDragSubclassProc, kSubId_LabelDrag, 0);
+                }
+            }
 
             PopulateAppCombo();
 
@@ -619,8 +746,47 @@ namespace {
 
         case WM_DRAWITEM: {
             const DRAWITEMSTRUCT* dis = (const DRAWITEMSTRUCT*)lParam;
-            if (dis && dis->CtlID == IDC_APP_COMBO) {
+            if (!dis) break;
+
+            // existing owner-draw for app combo
+            if (dis->CtlID == IDC_APP_COMBO) {
                 DrawComboItem(dis);
+                return TRUE;
+            }
+
+            // owner-draw for custom title buttons
+            if (dis->CtlType == ODT_BUTTON && dis->CtlID == IDC_BTN_CLOSE) {
+
+                HDC hdc = dis->hDC;
+                RECT rc = dis->rcItem;
+
+                // base colors
+                COLORREF bg = RGB(66, 66, 66);
+                COLORREF hover = RGB(90, 90, 90);
+                COLORREF down = RGB(120, 120, 120);
+
+                // pick state color
+                COLORREF fill = bg;
+                if (dis->itemState & ODS_SELECTED) fill = down;
+                else if (dis->itemState & ODS_HOTLIGHT) fill = hover;
+
+                HBRUSH hb = CreateSolidBrush(fill);
+                FillRect(hdc, &rc, hb);
+                DeleteObject(hb);
+
+                // subtle frame
+                HPEN pen = CreatePen(PS_SOLID, 1, RGB(142, 142, 142));
+                HPEN old = (HPEN)SelectObject(hdc, pen);
+                Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
+                SelectObject(hdc, old);
+                DeleteObject(pen);
+
+                // draw icon centered
+                int ix = rc.left + (rc.right - rc.left - 16) / 2;
+                int iy = rc.top + (rc.bottom - rc.top - 16) / 2;
+                HICON hi = g_hIconClose;
+                if (hi) DrawIconEx(hdc, ix, iy, hi, 16, 16, 0, NULL, DI_NORMAL);
+
                 return TRUE;
             }
             break;
@@ -636,8 +802,22 @@ namespace {
             return 0;
         }
 
-                     // empty area click -> close all dropdowns and blur focus
-        case WM_LBUTTONDOWN:
+        // empty area click -> close all dropdowns and blur focus
+        case WM_LBUTTONDOWN: {
+            POINT pt = {
+                ((int)(short)((WORD)(((DWORD_PTR)(lParam)) & 0xffff))),
+                ((int)(short)((WORD)((((DWORD_PTR)(lParam)) >> 16) & 0xffff)))
+            };
+            if (ShouldStartDragFrom(pt)) {
+                ReleaseCapture();
+                // Convert to screen coords for WM_NCLBUTTONDOWN
+                POINT scr = pt; ClientToScreen(hwnd, &scr);
+                SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(scr.x, scr.y));
+                return 0;
+            }
+            CloseAllDropdownsAndBlurToPanel(hwnd);
+            return 0;
+        }
         case WM_RBUTTONDOWN:
             CloseAllDropdownsAndBlurToPanel(hwnd);
             return 0;
@@ -663,10 +843,27 @@ namespace {
             const int id = LOWORD(wParam);
             const int code = HIWORD(wParam);
 
+            // title buttons: keep current UX as hide
+            if (id == IDC_BTN_CLOSE && code == BN_CLICKED) {
+                ShowWindow(hwnd, SW_HIDE);
+                return 0;
+            }
+
+            if (id == IDC_APP_COMBO && code == CBN_DROPDOWN) {
+                // Adjust the list to show at 8-rows now.
+                SendMessageW(g_hwndCmbApp, CB_SETMINVISIBLE, 8, 0);
+                return 0;
+            }
+
             if (id == IDC_APP_COMBO && code == CBN_SELCHANGE) {
                 int sel = (int)SendMessageW(g_hwndCmbApp, CB_GETCURSEL, 0, 0);
                 AppItem* ai = (AppItem*)SendMessageW(g_hwndCmbApp, CB_GETITEMDATA, sel, 0);
                 if (ai) {
+                    // Special tail: toggle "Show all apps" and rebuild immediately
+                    if (ai->isSpecial) {
+                        TrayIcon::SetShowAllApps(TRUE);
+                        return 0; // IMPORTANT: do not fall through
+                    }
                     g_currentGuid = ai->guid;
                     RebuildCombosForScope();
                     SyncControlsFromTarget();
@@ -690,6 +887,10 @@ namespace {
                 int sel = (int)SendMessageW(g_hwndCmbApp, CB_GETCURSEL, 0, 0);
                 AppItem* ai = (AppItem*)SendMessageW(g_hwndCmbApp, CB_GETITEMDATA, sel, 0);
                 if (ai) {
+                    if (ai->isSpecial) {
+                        TrayIcon::SetShowAllApps(TRUE);
+                        return 0; // IMPORTANT: avoid overriding selection after rebuild
+                    }
                     g_currentGuid = ai->guid; // empty if Global
                     SyncControlsFromTarget();
                 }
@@ -794,13 +995,20 @@ namespace {
             return 0;
 
         case WM_DESTROY:
+            // remove subclass on IDC_LABEL_APP if present
+            HWND hLblApp = GetDlgItem(hwnd, IDC_LABEL_APP);
+            if (IsWindow(hLblApp)) {
+                RemoveWindowSubclass(hLblApp, LabelDragSubclassProc, kSubId_LabelDrag);
+            }
+
             ClearAppItems();
             g_hwndPanel = g_hwndIcon = g_hwndValue = g_hwndSlider = NULL;
             g_hwndLblApp = g_hwndCmbApp = NULL;
             g_hwndLblVolume = NULL;
             g_hwndLblEngine = g_hwndCmbEngine = NULL;
             g_hwndLblBuffer = g_hwndCmbBuffer = NULL;
-            g_hIconMute = g_hIconLvl1 = g_hIconLvl2 = g_hIconLvl3 = NULL;
+            g_hwndBtnClose = NULL;
+            g_hIconClose = g_hIconMute = g_hIconLvl1 = g_hIconLvl2 = g_hIconLvl3 = NULL;
             return 0;
         }
         return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -930,5 +1138,47 @@ namespace VolumeSlider {
         return g_currentGuid; // empty = Global
     }
 
+    // allow external components to set the current target guid
+    // - If panel window exists: rebuild app combo, select the guid if present,
+    //   then sync all controls and refresh tray.
+    // - If panel not created yet: just cache guid; first Show() will build UI.
+    void SetCurrentGuid(const std::wstring& guid) {
+        g_currentGuid = guid; // empty => Global
+
+        // If UI not created yet, defer UI work
+        if (!IsWindow(g_hwndPanel)) {
+            return;
+        }
+
+        // Rebuild combo to ensure the item list is up to date
+        PopulateAppCombo();
+
+        // Try to select the requested guid in the combo
+        int sel = -1;
+        const int count = (int)SendMessageW(g_hwndCmbApp, CB_GETCOUNT, 0, 0);
+        for (int i = 0; i < count; ++i) {
+            AppItem* ai = (AppItem*)SendMessageW(g_hwndCmbApp, CB_GETITEMDATA, i, 0);
+            if (ai && !ai->isSpecial && ai->guid == g_currentGuid) {
+                sel = i;
+                break;
+            }
+        }
+
+        if (sel >= 0) {
+            SendMessageW(g_hwndCmbApp, CB_SETCURSEL, sel, 0);
+        }
+        else {
+            // fallback to Global
+            g_currentGuid.clear();
+            if (count > 0) SendMessageW(g_hwndCmbApp, CB_SETCURSEL, 0, 0);
+        }
+
+        // Rebuild engine/buffer combos for the new scope and sync all controls
+        RebuildCombosForScope();
+        SyncControlsFromTarget();
+
+        // Notify tray to reflect the current target (caption/icon state etc.)
+        TrayIcon::RefreshForTarget(g_currentGuid);
+    }
 
 } // namespace VolumeSlider

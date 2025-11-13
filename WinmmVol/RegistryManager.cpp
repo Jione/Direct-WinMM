@@ -362,4 +362,51 @@ namespace RegistryManager {
         return eff;
     }
 
+    BOOL GetGuidByPid(DWORD pid, std::wstring& outGuid, BOOL onlyLive) {
+        outGuid.clear();
+        if (!gRoot || pid == 0) return FALSE;
+
+        // Enumerate all app subkeys and pick the newest LastSeen that matches pid
+        DWORD idx = 0; wchar_t name[256]; DWORD cch = 256; FILETIME ft = {};
+        ULONGLONG bestLastSeen = 0;
+        std::wstring bestGuid;
+
+        while (true) {
+            cch = _countof(name);
+            LONG r = RegEnumKeyExW(gRoot, idx++, name, &cch, NULL, NULL, NULL, &ft);
+            if (r == ERROR_NO_MORE_ITEMS) break;
+            if (r != ERROR_SUCCESS) continue;
+            if (lstrcmpiW(name, SUBKEY_GLOBAL) == 0) continue; // skip Global
+
+            HKEY hApp = NULL;
+            if (RegOpenKeyExW(gRoot, name, 0, KEY_READ, &hApp) != ERROR_SUCCESS) continue;
+
+            DWORD vpid = 0;
+            DWORD type = 0, cb = sizeof(vpid);
+            RegQueryValueExW(hApp, VAL_PID, NULL, &type, (LPBYTE)&vpid, &cb);
+            if (type != REG_DWORD) vpid = 0;
+
+            ULONGLONG ls = 0;
+            ReadQWORD(hApp, VAL_LASTSEEN, ls);
+
+            RegCloseKey(hApp);
+
+            if (vpid != pid) continue;
+
+            if (onlyLive && !IsProcessAlive(vpid)) {
+                // ignore stale
+                continue;
+            }
+
+            if (ls >= bestLastSeen) {
+                bestLastSeen = ls;
+                bestGuid = name;
+            }
+        }
+
+        if (bestGuid.empty()) return FALSE;
+        outGuid = bestGuid;
+        return TRUE;
+    }
+
 } // namespace RegistryManager

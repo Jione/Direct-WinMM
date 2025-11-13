@@ -19,8 +19,10 @@ const wchar_t* const MUTEX_NAME = L"WinMM-Stubs Volume Control";
 const wchar_t* const EXE_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
 
 // Custom message to signal the EXE
-const UINT WM_EXIT_APP = WM_APP + 1;
-const UINT WM_UPDATE_APP = WM_APP + 2;
+constexpr UINT WM_EXIT_APP = WM_APP + 1;
+constexpr UINT WM_UPDATE_APP = WM_APP + 2;
+constexpr UINT WM_SHOW_SLIDER = WM_APP + 3;
+constexpr UINT WM_SET_LIVEAPP = WM_APP + 4;
 
 // Bit layout
 constexpr DWORD OV_VOL_SHIFT = 0;                // 0..100
@@ -396,6 +398,10 @@ namespace PreferenceLoader {
         if (!gStop) return FALSE;
 
         gThread = CreateThread(NULL, 0, WatcherThreadProc, NULL, 0, NULL);
+
+        HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
+        if (hwnd) PostMessageW(hwnd, WM_SET_LIVEAPP, (WPARAM)gPid, 0);
+
         return gThread != NULL;
     }
 
@@ -405,9 +411,7 @@ namespace PreferenceLoader {
             WriteDWORD(gApp, VAL_PID, 0);
             WriteQWORD(gApp, VAL_LASTSEEN, NowFileTimeQword());
             HWND hwnd = FindWindowW(EXE_WINDOW_CLASS, NULL);
-            if (hwnd) {
-                PostMessageW(hwnd, WM_UPDATE_APP, 1, 0);
-            }
+            if (hwnd) PostMessageW(hwnd, WM_UPDATE_APP, 0, 0);
         }
 
         // stop thread

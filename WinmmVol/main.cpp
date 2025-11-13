@@ -20,8 +20,10 @@ const wchar_t* const MUTEX_NAME = L"WinMM-Stubs Volume Control";
 const wchar_t* const MAIN_WINDOW_CLASS = L"WinMMStubsMainMsgWindowClass";
 
 // Custom message from DLL
-const UINT WM_EXIT_APP = WM_APP + 1;
-const UINT WM_UPDATE_APP = WM_APP + 2;
+constexpr UINT WM_EXIT_APP = WM_APP + 1;
+constexpr UINT WM_UPDATE_APP = WM_APP + 2;
+constexpr UINT WM_SHOW_SLIDER = WM_APP + 3;
+constexpr UINT WM_SET_LIVEAPP = WM_APP + 4;
 
 // Global variables
 static HINSTANCE g_hInstance = NULL;
@@ -29,6 +31,7 @@ static HWND g_hMainWnd = NULL;
 static HWND g_hSliderWnd = NULL;
 static UINT g_shellCreated = 0;
 static BOOL g_connected = FALSE;
+static BOOL g_runFirst = FALSE;
 
 // Main Message Window Procedure
 LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -50,13 +53,20 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
         g_hSliderWnd = VolumeSlider::Create(g_hInstance, hwnd);
         g_shellCreated = RegisterWindowMessageW(L"TaskbarCreated");
 
-        SetTimer(hwnd, 1, 3000, NULL);
+        SetTimer(hwnd, 1, 100, NULL);
         break;
     }
-    
+
+    case WM_SET_LIVEAPP:
+        if (wParam) {
+            std::wstring guid;
+            if (RegistryManager::GetGuidByPid((DWORD)wParam, guid)) {
+                VolumeSlider::SetCurrentGuid(guid);
+            }
+        }
     case WM_UPDATE_APP:
     case WM_TIMER:
-        if (wParam == 1) {
+        if ((message != WM_TIMER) || (wParam == 1)) {
             RegistryManager::SweepAndInvalidateDeadPids();
             const BOOL hasLive = RegistryManager::HasAnyLiveApp();
 
@@ -65,23 +75,35 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
                     g_connected = TRUE;
                     TrayIcon::RefreshForTarget(VolumeSlider::GetCurrentGuid());
                 }
-            }
-            else {
-                if (!hasLive) {
-                    DestroyWindow(hwnd);
-                    break;
+                else if (!g_runFirst) {
+                    g_runFirst = TRUE;
+                    SetTimer(hwnd, 1, 3000, NULL);
+                    goto SHOW_SLIDER;
                 }
+            }
+            else if (!hasLive) {
+                DestroyWindow(hwnd);
+                break;
+            }
+            if (!g_runFirst){
+                g_runFirst = TRUE;
+                SetTimer(hwnd, 1, 3000, NULL);
             }
             VolumeSlider::EnsureSelectionLiveOrGlobal();
         }
         break;
 
+    case WM_SHOW_SLIDER:
+        TrayIcon::SetShowAllApps(FALSE);
+        goto SHOW_SLIDER;
+
     case WM_TRAYICON: // Message from the tray icon
         switch (LOWORD(lParam)) { // Notification event
         case WM_LBUTTONUP:
         case NIN_SELECT: // Select event (e.g., Enter key)
-            // Show volume slider
+        SHOW_SLIDER:
         {
+            // Show volume slider
             POINT pt;
             GetCursorPos(&pt);
             VolumeSlider::Show(g_hSliderWnd, pt);
@@ -163,6 +185,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 #ifdef _DEBUG
         MessageBoxW(NULL, L"WinMM Stubs Volume Control is already running.", L"Information", MB_OK | MB_ICONINFORMATION);
 #endif
+        HWND hwnd = FindWindowW(MAIN_WINDOW_CLASS, NULL);
+        if (hwnd) PostMessageW(hwnd, WM_SHOW_SLIDER, 0, 0);
         return 0;
     }
 

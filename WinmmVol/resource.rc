@@ -38,20 +38,23 @@ BEGIN
 END
 
 // Icon
-IDI_APPICON ICON DISCARDABLE "Resource\icon.ico"
+IDI_APPICON ICON DISCARDABLE "Resource\\icon.ico"
 
 // for Tray icon
-IDI_TRAYICON_MUTE    ICON DISCARDABLE "Resource\icon_mute.ico"
-IDI_TRAYICON_LVL1    ICON DISCARDABLE "Resource\icon_lv1.ico"
-IDI_TRAYICON_LVL2    ICON DISCARDABLE "Resource\icon_lv2.ico"
-IDI_TRAYICON_LVL3    ICON DISCARDABLE "Resource\icon_lv3.ico"
+IDI_TRAYICON_MUTE    ICON DISCARDABLE "Resource\\icon_mute.ico"
+IDI_TRAYICON_LVL1    ICON DISCARDABLE "Resource\\icon_lv1.ico"
+IDI_TRAYICON_LVL2    ICON DISCARDABLE "Resource\\icon_lv2.ico"
+IDI_TRAYICON_LVL3    ICON DISCARDABLE "Resource\\icon_lv3.ico"
 
 // Point all 4 IDs to the *same* multi-image icon file.
 // The resource compiler will assign them sequentially.
-IDI_SPEAKER_MUTE    ICON DISCARDABLE "Resource\speaker_mute.ico"
-IDI_SPEAKER_LVL1    ICON DISCARDABLE "Resource\speaker_lv1.ico"
-IDI_SPEAKER_LVL2    ICON DISCARDABLE "Resource\speaker_lv2.ico"
-IDI_SPEAKER_LVL3    ICON DISCARDABLE "Resource\speaker_lv3.ico"
+IDI_SPEAKER_MUTE    ICON DISCARDABLE "Resource\\speaker_mute.ico"
+IDI_SPEAKER_LVL1    ICON DISCARDABLE "Resource\\speaker_lv1.ico"
+IDI_SPEAKER_LVL2    ICON DISCARDABLE "Resource\\speaker_lv2.ico"
+IDI_SPEAKER_LVL3    ICON DISCARDABLE "Resource\\speaker_lv3.ico"
+
+// for Window control icon
+IDI_BTN_CLOSE       ICON DISCARDABLE "Resource\\btn_close.ico"
 
 // Menu
 IDR_TRAYMENU MENU DISCARDABLE
@@ -89,8 +92,8 @@ IDR_LICENSE_LIBFLAC   RCDATA "Resource\\License\\libflac.txt"
 IDR_LICENSE_LIBSAMP   RCDATA "Resource\\License\\libsamplerate.txt"
 
 // RCDATA for UI Lang
-IDR_UILANG_EN         RCDATA "Resource\en-US\Ui-en.txt"
-IDR_UILANG_KO         RCDATA "Resource\ko-KR\Ui-ko.txt"
+IDR_UILANG_EN         RCDATA "Resource\\en-US\\Ui-en.txt"
+IDR_UILANG_KO         RCDATA "Resource\\ko-KR\\Ui-ko.txt"
 
 // Add manifest for Common Controls 6.0 (required for themed trackbar)
-1 RT_MANIFEST "Resource\WinmmVol_manifest.xml"
+1 RT_MANIFEST "Resource\\WinmmVol_manifest.xml"

@@ -16,6 +16,9 @@
 #define IDI_SPEAKER_LVL2        109 // 33-65%
 #define IDI_SPEAKER_LVL3        110 // 66-100%
 
+// Custom minimize and close bottom file
+#define IDI_BTN_CLOSE           111 // btn_close.ico
+
 // Tray Menu Commands
 #define IDM_EXIT                1001 // Exit menu item ID
 #define IDM_SHOW_ALL_APPS       1002 // View All Apps mode menu item ID
@@ -35,6 +38,9 @@
 #define IDC_LABEL_VOLUME        2008
 #define IDC_LABEL_ENGINE        2009
 #define IDC_LABEL_BUFFER        2010
+
+// Custom title buttons (top-right)
+#define IDC_BTN_CLOSE           2011
 
 // About Dialog IDs
 #define IDD_ABOUT               3000

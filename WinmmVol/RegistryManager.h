@@ -84,6 +84,9 @@ namespace RegistryManager {
     // - Volume: product (global% * app% / 100)
     DWORD ComputeEffective(const std::wstring& guid);
 
+    // Try to get guid string by process id.
+    BOOL GetGuidByPid(DWORD pid, std::wstring& outGuid, BOOL onlyLive = TRUE);
+
     // Field helpers -------------------------------------------------------------
 
     inline int  OV_GetVolume(DWORD ov) { return (int)((ov & OV_VOL_MASK) >> OV_VOL_SHIFT); }
