@@ -12,17 +12,12 @@
 
 // Single edit control showing Usage + 2 blank lines + License.
 namespace {
-    enum ABOUT_MODE {
-        ABOUT_USAGE = 0,
-        ABOUT_LICENSE = 1
-    };
 
     static HWND   s_hDlg = NULL;
     static HWND   s_hEdit = NULL;
     static HFONT  s_hFont = NULL;
     static HBRUSH s_hBg = NULL;
     static BOOL   s_isOpen = FALSE;
-    static ABOUT_MODE s_mode = ABOUT_USAGE;
 
     // Load UTF-16LE RCDATA to std::wstring (skip BOM if present).
     static bool LoadUtf16RsrcToString(HINSTANCE hInst, UINT id, std::wstring& out) {
@@ -39,23 +34,6 @@ namespace {
         if (n && w[0] == 0xFEFF) { ++i; }
         out.assign(w + i, w + n);
         return true;
-    }
-
-    // Choose usage id by UI language.
-    static UINT SelectUsageId() {
-        LANGID lid = GetUserDefaultUILanguage();
-        switch (PRIMARYLANGID(lid)) {
-        case LANG_KOREAN:
-            return IDR_USAGE_KO;
-        default:
-            return IDR_USAGE_EN;
-        }
-    }
-
-    // Build usage-only
-    static void BuildUsageText(HINSTANCE hInst, std::wstring& out) {
-        out.clear();
-        LoadUtf16RsrcToString(hInst, SelectUsageId(), out);
     }
 
     // Build license-only (concatenate existing parts)
@@ -104,12 +82,7 @@ namespace {
         }
 
         std::wstring text;
-        if (s_mode == ABOUT_USAGE) {
-            BuildUsageText(hInst, text);
-        }
-        else {
-            BuildLicenseText(hInst, text);
-        }
+        BuildLicenseText(hInst, text);
         SetWindowTextW(s_hEdit, text.c_str());
     }
 
@@ -154,12 +127,7 @@ namespace {
 
             // Set window title by mode (Usage / License)
             std::wstring t;
-            if (s_mode == ABOUT_USAGE) {
-                SetWindowTextW(hDlg, UILang::Get(L"ABOUT_TITLE_USAGE", t));
-            }
-            else {
-                SetWindowTextW(hDlg, UILang::Get(L"ABOUT_TITLE_LICENSE", t));
-            }
+            SetWindowTextW(hDlg, UILang::Get(L"ABOUT_TITLE_LICENSE", t));
 
             CreateEditAndFill(hDlg);
             SetDialogIcon(hDlg);
@@ -202,21 +170,15 @@ namespace {
 }
 
 namespace AboutDialog {
-    static void ShowInternal(HINSTANCE hInstance, HWND hParent, ABOUT_MODE requested) {
+    static void ShowInternal(HINSTANCE hInstance, HWND hParent) {
         // if already open
         if (s_isOpen && s_hDlg && IsWindow(s_hDlg)) {
-            if (s_mode == requested) {
-                ShowWindow(s_hDlg, SW_SHOWNORMAL);
-                SetForegroundWindow(s_hDlg);
-            }
-            // different mode -> do nothing
+            ShowWindow(s_hDlg, SW_SHOWNORMAL);
+            SetForegroundWindow(s_hDlg);
             return;
         }
-        // not open -> set mode and open
-        s_mode = requested;
         DialogBoxParamW(hInstance, MAKEINTRESOURCEW(IDD_ABOUT), hParent, DlgProc, 0);
     }
 
-    void ShowUsage(HINSTANCE hInstance, HWND hParent) { ShowInternal(hInstance, hParent, ABOUT_USAGE); }
-    void ShowLicense(HINSTANCE hInstance, HWND hParent) { ShowInternal(hInstance, hParent, ABOUT_LICENSE); }
+    void ShowLicense(HINSTANCE hInstance, HWND hParent) { ShowInternal(hInstance, hParent); }
 }

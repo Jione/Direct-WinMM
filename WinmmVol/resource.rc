@@ -21,7 +21,6 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "CompanyName",      VER_COMPANY_NAME
             VALUE "FileDescription",  "Direct-Winmm CD-DA Volume Control"
             VALUE "FileVersion",      VER_FILE_VERSION_STR
             VALUE "InternalName",     "WinmmVol.exe"
@@ -38,23 +37,23 @@ BEGIN
 END
 
 // Icon
-IDI_APPICON ICON DISCARDABLE "Resource\\icon.ico"
+IDI_APPICON ICON DISCARDABLE "Resource\\Icon\icon.ico"
 
 // for Tray icon
-IDI_TRAYICON_MUTE    ICON DISCARDABLE "Resource\\icon_mute.ico"
-IDI_TRAYICON_LVL1    ICON DISCARDABLE "Resource\\icon_lv1.ico"
-IDI_TRAYICON_LVL2    ICON DISCARDABLE "Resource\\icon_lv2.ico"
-IDI_TRAYICON_LVL3    ICON DISCARDABLE "Resource\\icon_lv3.ico"
+IDI_TRAYICON_MUTE    ICON DISCARDABLE "Resource\\Icon\icon_mute.ico"
+IDI_TRAYICON_LVL1    ICON DISCARDABLE "Resource\\Icon\icon_lv1.ico"
+IDI_TRAYICON_LVL2    ICON DISCARDABLE "Resource\\Icon\icon_lv2.ico"
+IDI_TRAYICON_LVL3    ICON DISCARDABLE "Resource\\Icon\icon_lv3.ico"
 
 // Point all 4 IDs to the *same* multi-image icon file.
 // The resource compiler will assign them sequentially.
-IDI_SPEAKER_MUTE    ICON DISCARDABLE "Resource\\speaker_mute.ico"
-IDI_SPEAKER_LVL1    ICON DISCARDABLE "Resource\\speaker_lv1.ico"
-IDI_SPEAKER_LVL2    ICON DISCARDABLE "Resource\\speaker_lv2.ico"
-IDI_SPEAKER_LVL3    ICON DISCARDABLE "Resource\\speaker_lv3.ico"
+IDI_SPEAKER_MUTE    ICON DISCARDABLE "Resource\\Icon\speaker_mute.ico"
+IDI_SPEAKER_LVL1    ICON DISCARDABLE "Resource\\Icon\speaker_lv1.ico"
+IDI_SPEAKER_LVL2    ICON DISCARDABLE "Resource\\Icon\speaker_lv2.ico"
+IDI_SPEAKER_LVL3    ICON DISCARDABLE "Resource\\Icon\speaker_lv3.ico"
 
 // for Window control icon
-IDI_BTN_CLOSE       ICON DISCARDABLE "Resource\\btn_close.ico"
+IDI_BTN_CLOSE       ICON DISCARDABLE "Resource\\Icon\btn_close.ico"
 
 // Menu
 IDR_TRAYMENU MENU DISCARDABLE
@@ -62,7 +61,6 @@ BEGIN
 POPUP "&TrayMenu"
 BEGIN
 MENUITEM "Open Source &License", IDM_INFO_LICENSE
-MENUITEM "&Usage", IDM_INFO_USAGE
 MENUITEM SEPARATOR
 MENUITEM "&Reset all settings", IDM_MODE_CLEAR
 MENUITEM "&Show All Apps", IDM_SHOW_ALL_APPS
@@ -80,20 +78,17 @@ BEGIN
 CONTROL "", 0, "Static", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 8, 8, 464, 344
 END
 
-// RCDATA for Usage and Licenses
+// RCDATA for Licenses
 // Ensure these files exist in the specified paths relative to the .rc file
-IDR_USAGE_EN          RCDATA "Resource\\en-US\\Usage-en.txt"
-IDR_USAGE_KO          RCDATA "Resource\\ko-KR\\Usage-ko.txt"
-
-IDR_LICENSE_MINIMP3   RCDATA "Resource\\License\\minimp3.txt"
-IDR_LICENSE_LIBOGG    RCDATA "Resource\\License\\libogg.txt"
-IDR_LICENSE_LIBVORBIS RCDATA "Resource\\License\\libvorbis.txt"
-IDR_LICENSE_LIBFLAC   RCDATA "Resource\\License\\libflac.txt"
-IDR_LICENSE_LIBSAMP   RCDATA "Resource\\License\\libsamplerate.txt"
+IDR_LICENSE_MINIMP3   RCDATA "Resource\\Licenses\\minimp3.txt"
+IDR_LICENSE_LIBOGG    RCDATA "Resource\\Licenses\\libogg.txt"
+IDR_LICENSE_LIBVORBIS RCDATA "Resource\\Licenses\\libvorbis.txt"
+IDR_LICENSE_LIBFLAC   RCDATA "Resource\\Licenses\\libflac.txt"
+IDR_LICENSE_LIBSAMP   RCDATA "Resource\\Licenses\\libsamplerate.txt"
 
 // RCDATA for UI Lang
-IDR_UILANG_EN         RCDATA "Resource\\en-US\\Ui-en.txt"
-IDR_UILANG_KO         RCDATA "Resource\\ko-KR\\Ui-ko.txt"
+IDR_UILANG_EN         RCDATA "Resource\\UI\\EN.txt"
+IDR_UILANG_KO         RCDATA "Resource\\UI\\KO.txt"
 
 // Add manifest for Common Controls 6.0 (required for themed trackbar)
 1 RT_MANIFEST "Resource\\WinmmVol_manifest.xml"

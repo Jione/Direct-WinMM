@@ -120,9 +120,6 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPar
 
     case WM_COMMAND: // Menu item selected
         switch (LOWORD(wParam)) {
-        case IDM_INFO_USAGE:
-            AboutDialog::ShowUsage(g_hInstance, hwnd);
-            break;
         case IDM_INFO_LICENSE:
             AboutDialog::ShowLicense(g_hInstance, hwnd);
             break;

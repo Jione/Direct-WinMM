@@ -4,6 +4,5 @@
 #include <windows.h>
 
 namespace AboutDialog {
-    void ShowUsage(HINSTANCE hInstance, HWND hParent);
     void ShowLicense(HINSTANCE hInstance, HWND hParent);
 } // namespace AboutDialog

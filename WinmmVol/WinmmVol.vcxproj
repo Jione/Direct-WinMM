@@ -199,25 +199,24 @@
     <Xml Include="Resource\WinmmVol_manifest.xml" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="Resource\icon.ico" />
-    <Image Include="Resource\icon_lv1.ico" />
-    <Image Include="Resource\icon_lv2.ico" />
-    <Image Include="Resource\icon_lv3.ico" />
-    <Image Include="Resource\icon_mute.ico" />
-    <Image Include="Resource\speaker_mute.ico" />
-    <Image Include="Resource\speaker_lv1.ico" />
-    <Image Include="Resource\speaker_lv2.ico" />
-    <Image Include="Resource\speaker_lv3.ico" />
+    <Image Include="Resource\Icon\icon.ico" />
+    <Image Include="Resource\Icon\icon_lv1.ico" />
+    <Image Include="Resource\Icon\icon_lv2.ico" />
+    <Image Include="Resource\Icon\icon_lv3.ico" />
+    <Image Include="Resource\Icon\icon_mute.ico" />
+    <Image Include="Resource\Icon\speaker_mute.ico" />
+    <Image Include="Resource\Icon\speaker_lv1.ico" />
+    <Image Include="Resource\Icon\speaker_lv2.ico" />
+    <Image Include="Resource\Icon\speaker_lv3.ico" />
   </ItemGroup>
   <ItemGroup>
-    <Text Include="Resource\en-US\Ui-en.txt" />
-    <Text Include="Resource\en-US\Usage-en.txt" />
-    <Text Include="Resource\ko-KR\Ui-ko.txt" />
-    <Text Include="Resource\ko-KR\Usage-ko.txt" />
-    <Text Include="Resource\License\libflac.txt" />
-    <Text Include="Resource\License\libogg.txt" />
-    <Text Include="Resource\License\libvorbis.txt" />
-    <Text Include="Resource\License\minimp3.txt" />
+    <Text Include="Resource\Licenses\libsamplerate.txt" />
+    <Text Include="Resource\Licenses\libflac.txt" />
+    <Text Include="Resource\Licenses\libogg.txt" />
+    <Text Include="Resource\Licenses\libvorbis.txt" />
+    <Text Include="Resource\Licenses\minimp3.txt" />
+    <Text Include="Resource\UI\EN.txt" />
+    <Text Include="Resource\UI\KO.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

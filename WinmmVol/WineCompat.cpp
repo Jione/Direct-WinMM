@@ -131,7 +131,7 @@ namespace {
         "gfxDestroyDeviceInterfaceList", "gfxEnumerateGfxs", "gfxModifyGfx", "gfxOpenGfx", "gfxRemoveGfx"
     };
 
-    static const wchar_t gMessgageTitle[] = L"WineCompat";
+    static const wchar_t gMessgageTitle[] = L"Direct-WinMM EXE Patcher for Wine Compatibility";
     static constexpr int gFuncSize = (sizeof(gFunctions) / sizeof(gFunctions[0]));
 
     static const wchar_t* getNowFileTime() {

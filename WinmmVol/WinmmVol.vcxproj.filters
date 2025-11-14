@@ -16,7 +16,10 @@
     <Filter Include="Resource Files\Icon">
       <UniqueIdentifier>{1ece998b-a5d7-40e6-af64-e1895a9f4f04}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Resource Files\Text">
+    <Filter Include="Resource Files\Licenses">
+      <UniqueIdentifier>{3d8a54e0-30ad-4360-802b-7e15f46963de}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\UI">
       <UniqueIdentifier>{44448f5b-5012-46b4-a347-d616de6ab8d5}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
@@ -79,31 +82,31 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <Image Include="Resource\icon.ico">
+    <Image Include="Resource\Icon\icon.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
-    <Image Include="Resource\speaker_lv1.ico">
+    <Image Include="Resource\Icon\speaker_lv1.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
-    <Image Include="Resource\speaker_lv2.ico">
+    <Image Include="Resource\Icon\speaker_lv2.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
-    <Image Include="Resource\speaker_lv3.ico">
+    <Image Include="Resource\Icon\speaker_lv3.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
-    <Image Include="Resource\speaker_mute.ico">
+    <Image Include="Resource\Icon\speaker_mute.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
-    <Image Include="Resource\icon_lv1.ico">
+    <Image Include="Resource\Icon\icon_lv1.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
-    <Image Include="Resource\icon_lv2.ico">
+    <Image Include="Resource\Icon\icon_lv2.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
-    <Image Include="Resource\icon_lv3.ico">
+    <Image Include="Resource\Icon\icon_lv3.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
-    <Image Include="Resource\icon_mute.ico">
+    <Image Include="Resource\Icon\icon_mute.ico">
       <Filter>Resource Files\Icon</Filter>
     </Image>
   </ItemGroup>
@@ -118,29 +121,26 @@
     </Xml>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="Resource\License\libflac.txt">
-      <Filter>Resource Files\Text</Filter>
+    <Text Include="Resource\Licenses\libflac.txt">
+      <Filter>Resource Files\Licenses</Filter>
     </Text>
-    <Text Include="Resource\License\libogg.txt">
-      <Filter>Resource Files\Text</Filter>
+    <Text Include="Resource\Licenses\libogg.txt">
+      <Filter>Resource Files\Licenses</Filter>
     </Text>
-    <Text Include="Resource\License\libvorbis.txt">
-      <Filter>Resource Files\Text</Filter>
+    <Text Include="Resource\Licenses\libvorbis.txt">
+      <Filter>Resource Files\Licenses</Filter>
     </Text>
-    <Text Include="Resource\License\minimp3.txt">
-      <Filter>Resource Files\Text</Filter>
+    <Text Include="Resource\Licenses\minimp3.txt">
+      <Filter>Resource Files\Licenses</Filter>
     </Text>
-    <Text Include="Resource\en-US\Ui-en.txt">
-      <Filter>Resource Files\Text</Filter>
+    <Text Include="Resource\Licenses\libsamplerate.txt">
+      <Filter>Resource Files\Licenses</Filter>
     </Text>
-    <Text Include="Resource\ko-KR\Ui-ko.txt">
-      <Filter>Resource Files\Text</Filter>
+    <Text Include="Resource\UI\EN.txt">
+      <Filter>Resource Files\UI</Filter>
     </Text>
-    <Text Include="Resource\en-US\Usage-en.txt">
-      <Filter>Resource Files\Text</Filter>
-    </Text>
-    <Text Include="Resource\ko-KR\Usage-ko.txt">
-      <Filter>Resource Files\Text</Filter>
+    <Text Include="Resource\UI\KO.txt">
+      <Filter>Resource Files\UI</Filter>
     </Text>
   </ItemGroup>
 </Project>

@@ -14,5 +14,4 @@
 #define VER_PRODUCT_VERSION_STR VER_FILE_VERSION_STR
 
 // Shared metadata
-#define VER_COMPANY_NAME        "WinMM CD-DA Stubs Project"
 #define VER_PRODUCT_NAME        "Direct-WinMM"

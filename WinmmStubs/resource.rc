@@ -20,7 +20,6 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "CompanyName",      VER_COMPANY_NAME
             VALUE "FileDescription",  "Direct-WinMM CD-DA Wrapper"
             VALUE "FileVersion",      VER_FILE_VERSION_STR
             VALUE "InternalName",     "winmm.dll"

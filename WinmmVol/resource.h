@@ -23,8 +23,7 @@
 #define IDM_EXIT                1001 // Exit menu item ID
 #define IDM_SHOW_ALL_APPS       1002 // View All Apps mode menu item ID
 #define IDM_MODE_CLEAR          1003 // Reset all settings mode menu item ID
-#define IDM_INFO_USAGE          1004 // Info Usage Dialog menu item ID
-#define IDM_INFO_LICENSE        1005 // Info OSL Dialog menu item ID
+#define IDM_INFO_LICENSE        1004 // Info OSL Dialog menu item ID
 
 // Volume Slider Controls
 #define IDC_APP_COMBO           2000
@@ -46,12 +45,28 @@
 #define IDD_ABOUT               3000
 
 // UILang packs (UTF-16 key=value)
-#define IDR_UILANG_EN           9001 // en-US\Ui-en.txt
-#define IDR_UILANG_KO           9002 // ko-KR\Ui-ko.txt
-
-// RCDATA Resource IDs
-#define IDR_USAGE_EN            9101 // en-US\Usage-en.txt
-#define IDR_USAGE_KO            9102 // ko-KR\Usage-ko.txt
+#define IDR_UILANG_EN           9001 // English
+#define IDR_UILANG_KO           9002 // Korean
+#define IDR_UILANG_CA           9003 // Catalan, Valencian
+#define IDR_UILANG_CS           9004 // Czech
+#define IDR_UILANG_DE           9005 // German
+#define IDR_UILANG_ES           9006 // Spanish, Castilian
+#define IDR_UILANG_FR           9007 // French
+#define IDR_UILANG_ID           9008 // Indonesian
+#define IDR_UILANG_IT           9009 // Italiano
+#define IDR_UILANG_JA           9010 // Japanese
+#define IDR_UILANG_KA           9011 // Georgian
+#define IDR_UILANG_LT           9012 // Lithuanian
+#define IDR_UILANG_NB           9013 // Norwegian Bokmal
+#define IDR_UILANG_NL           9014 // Dutch, Flemish
+#define IDR_UILANG_PL           9015 // Polish
+#define IDR_UILANG_PT_BR        9016 // Portuguese (Brazil)
+#define IDR_UILANG_RU           9017 // Russian
+#define IDR_UILANG_TH           9018 // Thai
+#define IDR_UILANG_TR           9019 // Turkish
+#define IDR_UILANG_ZH_CN        9020 // Chinese(zh-CN)
+#define IDR_UILANG_ZH_HK        9021 // Chinese(zh-HK)
+#define IDR_UILANG_ZH_TW        9022 // Chinese(zh-TW)
 
 // Example full license text (UTF-16)
 #define IDR_LICENSE_MINIMP3     9201 // License\minimp3.txt
