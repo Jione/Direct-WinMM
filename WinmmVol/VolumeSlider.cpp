@@ -90,6 +90,9 @@ namespace {
         int appIconGap = 6;
     } L;
 
+    // remember last show position
+    static POINT g_lastShowPt = { 0, 0 };
+
     // Helpers -----------------------------------------------------------------
 
     static HFONT CreateUIFont(LONG h, LONG w) {
@@ -644,6 +647,9 @@ namespace {
                 POINT pt; GetCursorPos(&pt); // screen coords
                 ReleaseCapture();
                 SendMessageW(hParent, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(pt.x, pt.y));
+                POINT pt2; GetCursorPos(&pt2);
+                g_lastShowPt.x += pt2.x - pt.x;
+                g_lastShowPt.y += pt2.y - pt.y;
                 return 0;
             }
             break;
@@ -864,7 +870,11 @@ namespace {
                 ReleaseCapture();
                 // Convert to screen coords for WM_NCLBUTTONDOWN
                 POINT scr = pt; ClientToScreen(hwnd, &scr);
+                POINT pt1; GetCursorPos(&pt1); // screen coords
                 SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(scr.x, scr.y));
+                POINT pt2; GetCursorPos(&pt2);
+                g_lastShowPt.x += pt2.x - pt1.x;
+                g_lastShowPt.y += pt2.y - pt1.y;
                 return 0;
             }
             CloseAllDropdownsAndBlurToPanel(hwnd);
@@ -930,6 +940,11 @@ namespace {
                         else if (ai->guid == L"#PATCH_FOR_WINE#") {
                             // run Wine patch flow; do not change selection/target
                             WineCompat::SelectFile();
+
+                            // restore panel after the dialog
+                            if (IsWindow(g_hwndPanel)) {
+                                VolumeSlider::Show(g_hwndPanel, g_lastShowPt);
+                            }
                         }
                         return 0; // IMPORTANT: stop here
                     }
@@ -1120,6 +1135,7 @@ namespace VolumeSlider {
         SetForegroundWindow(hwndSlider);
         SetFocus(hwndSlider);
 
+        g_lastShowPt = pt;
         TrayIcon::RefreshForTarget(g_currentGuid);
     }
 
