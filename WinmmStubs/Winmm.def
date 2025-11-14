@@ -32,6 +32,7 @@ EXPORTS
     _ciGetDeviceIDFromElementIDA     = mciGetDeviceIDFromElementIDAStubs
     _ciGetDeviceIDFromElementIDW     = mciGetDeviceIDFromElementIDWStubs
 
+;WINMM.DLL
 ;PlaySound Functions
     Unnamed2                         = NT4PlaySound
     NT4PlaySound
@@ -266,63 +267,81 @@ EXPORTS
     gfxOpenGfx
     gfxRemoveGfx
 
-; _inmm wrapper
-    _aveInAddBuffer                  = waveInAddBuffer
-    _aveInClose                      = waveInClose
-    _aveInGetDevCapsA                = waveInGetDevCapsA
-    _aveInGetDevCapsW                = waveInGetDevCapsW
-    _aveInGetErrorTextA              = waveInGetErrorTextA
-    _aveInGetErrorTextW              = waveInGetErrorTextW
-    _aveInGetID                      = waveInGetID
-    _aveInGetNumDevs                 = waveInGetNumDevs
-    _aveInGetPosition                = waveInGetPosition
-    _aveInMessage                    = waveInMessage
-    _aveInOpen                       = waveInOpen
-    _aveInPrepareHeader              = waveInPrepareHeader
-    _aveInReset                      = waveInReset
-    _aveInStart                      = waveInStart
-    _aveInStop                       = waveInStop
-    _aveInUnprepareHeader            = waveInUnprepareHeader
-    _aveOutBreakLoop                 = waveOutBreakLoop
-    _aveOutClose                     = waveOutClose
-    _aveOutGetDevCapsA               = waveOutGetDevCapsA
-    _aveOutGetDevCapsW               = waveOutGetDevCapsW
-    _aveOutGetErrorTextA             = waveOutGetErrorTextA
-    _aveOutGetErrorTextW             = waveOutGetErrorTextW
-    _aveOutGetID                     = waveOutGetID
-    _aveOutGetNumDevs                = waveOutGetNumDevs
-    _aveOutGetPitch                  = waveOutGetPitch
-    _aveOutGetPlaybackRate           = waveOutGetPlaybackRate
-    _aveOutGetPosition               = waveOutGetPosition
-    _aveOutGetVolume                 = waveOutGetVolume
-    _aveOutMessage                   = waveOutMessage
-    _aveOutOpen                      = waveOutOpen
-    _aveOutPause                     = waveOutPause
-    _aveOutPrepareHeader             = waveOutPrepareHeader
-    _aveOutReset                     = waveOutReset
-    _aveOutRestart                   = waveOutRestart
-    _aveOutSetPitch                  = waveOutSetPitch
-    _aveOutSetPlaybackRate           = waveOutSetPlaybackRate
-    _aveOutSetVolume                 = waveOutSetVolume
-    _aveOutUnprepareHeader           = waveOutUnprepareHeader
-    _aveOutWrite                     = waveOutWrite
+;_INMM.DLL
+;PlaySound Functions
+    _nnamed2                         = NT4PlaySound
+    _T4PlaySound                     = NT4PlaySound
+    _laySound                        = PlaySound
+    _laySoundA                       = PlaySoundA
+    _laySoundW                       = PlaySoundW
+    _msystemGetVersion               = mmsystemGetVersion
+    _ndPlaySoundA                    = sndPlaySoundA
+    _ndPlaySoundW                    = sndPlaySoundW
+    _inmmDbgOut                      = winmmDbgOut
+    _inmmSetDebugLevel               = winmmSetDebugLevel
+;MCI Functions
+    _indCommandItem                  = FindCommandItem
+    _ciDriverNotify                  = mciDriverNotify
+    _ciDriverYield                   = mciDriverYield
+    _ciEatCommandEntry               = mciEatCommandEntry
     _ciExecute                       = mciExecute
+    _ciFreeCommandResource           = mciFreeCommandResource
     _ciGetCreatorTask                = mciGetCreatorTask
     ;_ciGetDeviceIDA                  = mciGetDeviceIDA
     ;_ciGetDeviceIDW                  = mciGetDeviceIDW
     ;_ciGetDeviceIDFromElementIDA     = mciGetDeviceIDFromElementIDA
     ;_ciGetDeviceIDFromElementIDW     = mciGetDeviceIDFromElementIDW
+    _ciGetDriverData                 = mciGetDriverData
     _ciGetErrorStringA               = mciGetErrorStringA
     _ciGetErrorStringW               = mciGetErrorStringW
+    _ciGetParamSize                  = mciGetParamSize
     _ciGetYieldProc                  = mciGetYieldProc
+    _ciLoadCommandResource           = mciLoadCommandResource
     ;_ciSendCommandA                  = mciSendCommandA
     ;_ciSendCommandW                  = mciSendCommandW
     ;_ciSendStringA                   = mciSendStringA
     ;_ciSendStringW                   = mciSendStringW
+    _ciSetDriverData                 = mciSetDriverData
     _ciSetYieldProc                  = mciSetYieldProc
-    _efDriverProc                    = DefDriverProc
-    _endDriverMessage                = SendDriverMessage
-    _etDriverModuleHandle            = GetDriverModuleHandle
+    _ciUnlockCommandTable            = mciUnlockCommandTable
+; Driver helper functions
+    _riverCallback                   = DriverCallback
+    _mDrvInstall                     = mmDrvInstall
+; MMIO functions
+    _mioAdvance                      = mmioAdvance
+    _mioAscend                       = mmioAscend
+    _mioClose                        = mmioClose
+    _mioCreateChunk                  = mmioCreateChunk
+    _mioDescend                      = mmioDescend
+    _mioFlush                        = mmioFlush
+    _mioGetInfo                      = mmioGetInfo
+    _mioInstallIOProcA               = mmioInstallIOProcA
+    _mioInstallIOProcW               = mmioInstallIOProcW
+    _mioOpenA                        = mmioOpenA
+    _mioOpenW                        = mmioOpenW
+    _mioRead                         = mmioRead
+    _mioRenameA                      = mmioRenameA
+    _mioRenameW                      = mmioRenameW
+    _mioSeek                         = mmioSeek
+    _mioSendMessage                  = mmioSendMessage
+    _mioSetBuffer                    = mmioSetBuffer
+    _mioSetInfo                      = mmioSetInfo
+    _mioStringToFOURCCA              = mmioStringToFOURCCA
+    _mioStringToFOURCCW              = mmioStringToFOURCCW
+    _mioWrite                        = mmioWrite
+; JOY stick API
+    _oyConfigChanged                 = joyConfigChanged
+    _oyGetDevCapsA                   = joyGetDevCapsA
+    _oyGetDevCapsW                   = joyGetDevCapsW
+    _oyGetNumDevs                    = joyGetNumDevs
+    _oyGetPos                        = joyGetPos
+    _oyGetPosEx                      = joyGetPosEx
+    _oyGetThreshold                  = joyGetThreshold
+    _oyReleaseCapture                = joyReleaseCapture
+    _oySetCalibration                = joySetCalibration
+    _oySetCapture                    = joySetCapture
+    _oySetThreshold                  = joySetThreshold
+; MIDI functions
     _idiConnect                      = midiConnect
     _idiDisconnect                   = midiDisconnect
     _idiInAddBuffer                  = midiInAddBuffer
@@ -366,6 +385,55 @@ EXPORTS
     _idiStreamProperty               = midiStreamProperty
     _idiStreamRestart                = midiStreamRestart
     _idiStreamStop                   = midiStreamStop
+; AUX interface
+    ;_uxGetDevCapsA                   = auxGetDevCapsA
+    ;_uxGetDevCapsW                   = auxGetDevCapsW
+    ;_uxGetNumDevs                    = auxGetNumDevs
+    ;_uxGetVolume                     = auxGetVolume
+    _uxOutMessage                    = auxOutMessage
+    ;_uxSetVolume                     = auxSetVolume
+; WAVE out interface
+    _aveOutBreakLoop                 = waveOutBreakLoop
+    _aveOutClose                     = waveOutClose
+    _aveOutGetDevCapsA               = waveOutGetDevCapsA
+    _aveOutGetDevCapsW               = waveOutGetDevCapsW
+    _aveOutGetErrorTextA             = waveOutGetErrorTextA
+    _aveOutGetErrorTextW             = waveOutGetErrorTextW
+    _aveOutGetID                     = waveOutGetID
+    _aveOutGetNumDevs                = waveOutGetNumDevs
+    _aveOutGetPitch                  = waveOutGetPitch
+    _aveOutGetPlaybackRate           = waveOutGetPlaybackRate
+    _aveOutGetPosition               = waveOutGetPosition
+    _aveOutGetVolume                 = waveOutGetVolume
+    _aveOutMessage                   = waveOutMessage
+    _aveOutOpen                      = waveOutOpen
+    _aveOutPause                     = waveOutPause
+    _aveOutPrepareHeader             = waveOutPrepareHeader
+    _aveOutReset                     = waveOutReset
+    _aveOutRestart                   = waveOutRestart
+    _aveOutSetPitch                  = waveOutSetPitch
+    _aveOutSetPlaybackRate           = waveOutSetPlaybackRate
+    _aveOutSetVolume                 = waveOutSetVolume
+    _aveOutUnprepareHeader           = waveOutUnprepareHeader
+    _aveOutWrite                     = waveOutWrite
+; WAVE in interface
+    _aveInAddBuffer                  = waveInAddBuffer
+    _aveInClose                      = waveInClose
+    _aveInGetDevCapsA                = waveInGetDevCapsA
+    _aveInGetDevCapsW                = waveInGetDevCapsW
+    _aveInGetErrorTextA              = waveInGetErrorTextA
+    _aveInGetErrorTextW              = waveInGetErrorTextW
+    _aveInGetID                      = waveInGetID
+    _aveInGetNumDevs                 = waveInGetNumDevs
+    _aveInGetPosition                = waveInGetPosition
+    _aveInMessage                    = waveInMessage
+    _aveInOpen                       = waveInOpen
+    _aveInPrepareHeader              = waveInPrepareHeader
+    _aveInReset                      = waveInReset
+    _aveInStart                      = waveInStart
+    _aveInStop                       = waveInStop
+    _aveInUnprepareHeader            = waveInUnprepareHeader
+; TIME interface
     _imeBeginPeriod                  = timeBeginPeriod
     _imeEndPeriod                    = timeEndPeriod
     _imeGetDevCaps                   = timeGetDevCaps
@@ -373,6 +441,7 @@ EXPORTS
     _imeGetTime                      = timeGetTime
     _imeKillEvent                    = timeKillEvent
     _imeSetEvent                     = timeSetEvent
+; MIXER interface
     _ixerClose                       = mixerClose
     _ixerGetControlDetailsA          = mixerGetControlDetailsA
     _ixerGetControlDetailsW          = mixerGetControlDetailsW
@@ -387,49 +456,48 @@ EXPORTS
     _ixerMessage                     = mixerMessage
     _ixerOpen                        = mixerOpen
     _ixerSetControlDetails           = mixerSetControlDetails
-    _laySound                        = PlaySound
-    _laySoundA                       = PlaySoundA
-    _laySoundW                       = PlaySoundW
+; TASK
+    _OWAppExit                       = WOWAppExit
+    _mGetCurrentTask                 = mmGetCurrentTask
+    _mTaskBlock                      = mmTaskBlock
+    _mTaskCreate                     = mmTaskCreate
+    _mTaskSignal                     = mmTaskSignal
+    _mTaskYield                      = mmTaskYield
+; INSTALLABLE DRIVER
     _loseDriver                      = CloseDriver
-    _mioAdvance                      = mmioAdvance
-    _mioAscend                       = mmioAscend
-    _mioClose                        = mmioClose
-    _mioCreateChunk                  = mmioCreateChunk
-    _mioDescend                      = mmioDescend
-    _mioFlush                        = mmioFlush
-    _mioGetInfo                      = mmioGetInfo
-    _mioInstallIOProcA               = mmioInstallIOProcA
-    _mioInstallIOProcW               = mmioInstallIOProcW
-    _mioOpenA                        = mmioOpenA
-    _mioOpenW                        = mmioOpenW
-    _mioRead                         = mmioRead
-    _mioRenameA                      = mmioRenameA
-    _mioRenameW                      = mmioRenameW
-    _mioSeek                         = mmioSeek
-    _mioSendMessage                  = mmioSendMessage
-    _mioSetBuffer                    = mmioSetBuffer
-    _mioSetInfo                      = mmioSetInfo
-    _mioStringToFOURCCA              = mmioStringToFOURCCA
-    _mioStringToFOURCCW              = mmioStringToFOURCCW
-    _mioWrite                        = mmioWrite
-    _msystemGetVersion               = mmsystemGetVersion
-    _ndPlaySoundA                    = sndPlaySoundA
-    _ndPlaySoundW                    = sndPlaySoundW
-    _oyConfigChanged                 = joyConfigChanged
-    _oyGetDevCapsA                   = joyGetDevCapsA
-    _oyGetDevCapsW                   = joyGetDevCapsW
-    _oyGetNumDevs                    = joyGetNumDevs
-    _oyGetPos                        = joyGetPos
-    _oyGetPosEx                      = joyGetPosEx
-    _oyGetThreshold                  = joyGetThreshold
-    _oyReleaseCapture                = joyReleaseCapture
-    _oySetCapture                    = joySetCapture
-    _oySetThreshold                  = joySetThreshold
-    _penDriver                       = OpenDriver
+    _efDriverProc                    = DefDriverProc
+    _rvClose                         = DrvClose
     _rvGetModuleHandle               = DrvGetModuleHandle
-    ;_uxGetDevCapsA                   = auxGetDevCapsA
-    ;_uxGetDevCapsW                   = auxGetDevCapsW
-    ;_uxGetNumDevs                    = auxGetNumDevs
-    ;_uxGetVolume                     = auxGetVolume
-    _uxOutMessage                    = auxOutMessage
-    ;_uxSetVolume                     = auxSetVolume
+    _rvOpen                          = DrvOpen
+    _rvSendMessage                   = DrvSendMessage
+    _etDriverModuleHandle            = GetDriverModuleHandle
+    _penDriver                       = OpenDriver
+    _endDriverMessage                = SendDriverMessage
+; WOW Thunks
+    _ux32Message                     = aux32Message
+    _oy32Message                     = joy32Message
+    _ci32Message                     = mci32Message
+    _id32Message                     = mid32Message
+    _od32Message                     = mod32Message
+    _xd32Message                     = mxd32Message
+    _id32Message                     = tid32Message
+    _id32Message                     = wid32Message
+    _od32Message                     = wod32Message
+    _otifyCallbackData               = NotifyCallbackData
+    _OW32DriverCallback              = WOW32DriverCallback
+    _OW32ResolveMultiMediaHandle     = WOW32ResolveMultiMediaHandle
+; Win NT Specific Registry
+    _igrateAllDrivers                = MigrateAllDrivers
+    _igrateSoundEvents               = MigrateSoundEvents
+    _inmmLogoff                      = WinmmLogoff
+    _inmmLogon                       = WinmmLogon
+; Audio GFX support
+    _fxAddGfx                        = gfxAddGfx
+    _fxBatchChange                   = gfxBatchChange
+    _fxCreateGfxFactoriesList        = gfxCreateGfxFactoriesList
+    _fxCreateZoneFactoriesList       = gfxCreateZoneFactoriesList
+    _fxDestroyDeviceInterfaceList    = gfxDestroyDeviceInterfaceList
+    _fxEnumerateGfxs                 = gfxEnumerateGfxs
+    _fxModifyGfx                     = gfxModifyGfx
+    _fxOpenGfx                       = gfxOpenGfx
+    _fxRemoveGfx                     = gfxRemoveGfx
