@@ -74,7 +74,7 @@ namespace {
         int gapY = 36;
 
         int rowH = 28;     // label/combos
-        int labelW = 220;  // label width
+        int labelW = 260;  // label width
         int comboH = 24;
         int comboW = 280;
 

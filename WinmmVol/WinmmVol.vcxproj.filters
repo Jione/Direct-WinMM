@@ -142,5 +142,65 @@
     <Text Include="Resource\UI\KO.txt">
       <Filter>Resource Files\UI</Filter>
     </Text>
+    <Text Include="Resource\UI\CA.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\CS.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\DE.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\ES.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\FR.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\ID.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\IT.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\JA.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\KA.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\LT.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\NB.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\NL.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\PL.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\PT-BR.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\RU.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\TH.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\TR.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\ZH-CN.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\ZH-HK.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
+    <Text Include="Resource\UI\ZH-TW.txt">
+      <Filter>Resource Files\UI</Filter>
+    </Text>
   </ItemGroup>
 </Project>
