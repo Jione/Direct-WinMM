@@ -126,6 +126,7 @@ namespace {
 
     // MCICDA compatibility state cache
     static BOOL  gEverPlayed = FALSE; // Has playback ever started
+    static int   gCountTracks = -1;   // Count tracks number for status query
     static int   gStatusTrack = 1;    // Current track number for status query
     static BOOL  gBufferEmpty = FALSE; // Has non-looping playback finished
     static std::wstring gPathFormat = L"music\\Track%02d"; // Default path format base
@@ -273,6 +274,11 @@ namespace {
     // Scans 1..99 using BuildTrackPath, considers the 'highest number' found
     static BOOL CountDiscNumTracks(int* outCount) {
         if (!outCount) return FALSE;
+        // Count files once
+        if (0 <= gCountTracks) {
+            *outCount = gCountTracks;
+            return TRUE;
+        }
         int maxIdx = 0;
         wchar_t tmp[MAX_PATH];
         for (int t = 1; t <= 99; ++t) {
@@ -280,8 +286,8 @@ namespace {
                 maxIdx = t; // Records the highest index, regardless of continuity
             }
         }
-        *outCount = maxIdx;   // 0 if none found
-        return TRUE;          // Returns TRUE even if 0
+        *outCount = gCountTracks = maxIdx; // 0 if none found
+        return TRUE; // Returns TRUE even if 0
     }
 
     // Single track length (ms)
