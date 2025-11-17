@@ -119,9 +119,9 @@ namespace {
         "GetDriverModuleHandle", "OpenDriver", "SendDriverMessage",
 
         // WOW Thunks
-        "aux32Message", "joy32Message", "mci32Message", "mid32Message", "mod32Message", "mxd32Message",
-        "tid32Message", "wid32Message", "wod32Message", "NotifyCallbackData",
-        "WOW32DriverCallback", "WOW32ResolveMultiMediaHandle",
+        // "aux32Message", "joy32Message", "mci32Message", "mid32Message", "mod32Message",
+        // "mxd32Message", "tid32Message", "wid32Message", "wod32Message",
+        "NotifyCallbackData", "WOW32DriverCallback", "WOW32ResolveMultiMediaHandle",
 
         // Win NT Specific Registry
         "MigrateAllDrivers", "MigrateSoundEvents", "WinmmLogoff", "WinmmLogon",

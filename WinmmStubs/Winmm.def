@@ -474,15 +474,15 @@ EXPORTS
     _penDriver                       = OpenDriver
     _endDriverMessage                = SendDriverMessage
 ; WOW Thunks
-    _ux32Message                     = aux32Message
-    _oy32Message                     = joy32Message
-    _ci32Message                     = mci32Message
-    _id32Message                     = mid32Message
-    _od32Message                     = mod32Message
-    _xd32Message                     = mxd32Message
-    _id32Message                     = tid32Message
-    _id32Message                     = wid32Message
-    _od32Message                     = wod32Message
+    ;_ux32Message                     = aux32Message
+    ;_oy32Message                     = joy32Message
+    ;_ci32Message                     = mci32Message
+    ;_id32Message                     = mid32Message
+    ;_od32Message                     = mod32Message
+    ;_xd32Message                     = mxd32Message
+    ;_id32Message                     = tid32Message
+    ;_id32Message                     = wid32Message
+    ;_od32Message                     = wod32Message
     _otifyCallbackData               = NotifyCallbackData
     _OW32DriverCallback              = WOW32DriverCallback
     _OW32ResolveMultiMediaHandle     = WOW32ResolveMultiMediaHandle

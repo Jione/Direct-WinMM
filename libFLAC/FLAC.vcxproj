@@ -132,6 +132,7 @@
       <CallingConvention>Cdecl</CallingConvention>
       <AdditionalOptions>/Ylsymbol %(AdditionalOptions)</AdditionalOptions>
       <ExceptionHandling>SyncCThrow</ExceptionHandling>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <AdditionalDependencies>ogg.lib;%(AdditionalDependencies)</AdditionalDependencies>

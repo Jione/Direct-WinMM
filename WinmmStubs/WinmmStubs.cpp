@@ -11,19 +11,36 @@ BOOL WINAPI LoadSystemLibraryW(WCHAR * wLibName) {
     HANDLE hFile;
     UINT szText;
 
-    szText = GetSystemDirectoryW(tzPath, MAX_PATH);
-    tzPath[szText++] = L'\\';
-    tzPath[szText] = 0;
-    lstrcatW(tzPath, wLibName);
-    lstrcatW(tzPath, L".dll");
-    hFile = CreateFileW(tzPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    // Get WOW64 Directory
+    if (!hLibModule && (szText = GetSystemWow64DirectoryW(tzPath, MAX_PATH))) {
+        tzPath[szText++] = L'\\';
+        tzPath[szText] = 0;
+        lstrcatW(tzPath, wLibName);
+        lstrcatW(tzPath, L".dll");
+        hFile = CreateFileW(tzPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
-    if (hFile != INVALID_HANDLE_VALUE) {
-        CloseHandle(hFile);
-        hLibModule = LoadLibraryW(tzPath);
+        if (hFile != INVALID_HANDLE_VALUE) {
+            CloseHandle(hFile);
+            hLibModule = LoadLibraryW(tzPath);
+        }
     }
-    else {
-        szText = GetCurrentDirectoryW(MAX_PATH, tzPath);
+
+    // Get System32 Directory
+    if (!hLibModule && (szText = GetSystemDirectoryW(tzPath, MAX_PATH))) {
+        tzPath[szText++] = L'\\';
+        tzPath[szText] = 0;
+        lstrcatW(tzPath, wLibName);
+        lstrcatW(tzPath, L".dll");
+        hFile = CreateFileW(tzPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+        if (hFile != INVALID_HANDLE_VALUE) {
+            CloseHandle(hFile);
+            hLibModule = LoadLibraryW(tzPath);
+        }
+    }
+
+    // Get Current Directory
+    if (!hLibModule && (szText = GetCurrentDirectoryW(MAX_PATH, tzPath))) {
         tzPath[szText++] = L'\\';
         tzPath[szText] = 0;
         lstrcatW(tzPath, wLibName);
@@ -33,6 +50,7 @@ BOOL WINAPI LoadSystemLibraryW(WCHAR * wLibName) {
         lstrcatW(tzPath, L".x64.dll");
 #endif
         hFile = CreateFileW(tzPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
         if (hFile != INVALID_HANDLE_VALUE) {
             CloseHandle(hFile);
             hLibModule = LoadLibraryW(tzPath);
@@ -41,9 +59,9 @@ BOOL WINAPI LoadSystemLibraryW(WCHAR * wLibName) {
     if (hLibModule) {
         NsGetAddress(hLibModule);
         dprintf(L"System DLL Path: %s\nLoaded %s.dll File (Address:0x%08X)\n", tzPath, wLibName, hLibModule);
-        return true;
+        return TRUE;
     }
-    return false;
+    return FALSE;
 }
 
 // Entry point at DLL Load & Release

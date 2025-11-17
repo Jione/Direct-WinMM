@@ -118,32 +118,136 @@
     <ClCompile Include="..\external\libflac\src\libFLAC\window.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\libflac\include\FLAC\all.h">
-      <Filter>Header Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\external\libflac\include\FLAC\assert.h">
-      <Filter>Header Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\external\libflac\include\FLAC\callback.h">
       <Filter>Header Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\libflac\include\FLAC\export.h">
-      <Filter>Header Files</Filter>
+    <ClCompile Include="..\external\libflac\src\share\win_utf8_io\win_utf8_io.c">
+      <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\external\libflac\include\FLAC\format.h">
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\external\libflac\include\FLAC\all.h">
       <Filter>Header Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\external\libflac\include\FLAC\metadata.h">
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\FLAC\assert.h">
       <Filter>Header Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\external\libflac\include\FLAC\ordinals.h">
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\FLAC\export.h">
       <Filter>Header Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\external\libflac\include\FLAC\stream_decoder.h">
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\FLAC\format.h">
       <Filter>Header Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\external\libflac\include\FLAC\stream_encoder.h">
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\FLAC\metadata.h">
       <Filter>Header Files</Filter>
-    </ClCompile>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\FLAC\ordinals.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\FLAC\stream_decoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\FLAC\stream_encoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\share\alloc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\share\compat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\share\compat_threads.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\share\endswap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\share\macros.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\share\private.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\share\safe_str.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\include\share\win_utf8_io.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\all.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\bitmath.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\bitreader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\bitwriter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\cpu.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\crc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\fixed.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\float.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\format.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\lpc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\macros.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\md5.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\memory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\metadata.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\ogg_decoder_aspect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\ogg_encoder_aspect.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\ogg_helper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\ogg_mapping.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\stream_encoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\stream_encoder_framing.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\private\window.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\protected\all.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\protected\stream_decoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\external\libflac\src\libFLAC\include\protected\stream_encoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

@@ -37,23 +37,23 @@ BEGIN
 END
 
 // Icon
-IDI_APPICON ICON DISCARDABLE "Resource\\Icon\icon.ico"
+IDI_APPICON ICON DISCARDABLE "Resource\\Icon\\icon.ico"
 
 // for Tray icon
-IDI_TRAYICON_MUTE    ICON DISCARDABLE "Resource\\Icon\icon_mute.ico"
-IDI_TRAYICON_LVL1    ICON DISCARDABLE "Resource\\Icon\icon_lv1.ico"
-IDI_TRAYICON_LVL2    ICON DISCARDABLE "Resource\\Icon\icon_lv2.ico"
-IDI_TRAYICON_LVL3    ICON DISCARDABLE "Resource\\Icon\icon_lv3.ico"
+IDI_TRAYICON_MUTE    ICON DISCARDABLE "Resource\\Icon\\icon_mute.ico"
+IDI_TRAYICON_LVL1    ICON DISCARDABLE "Resource\\Icon\\icon_lv1.ico"
+IDI_TRAYICON_LVL2    ICON DISCARDABLE "Resource\\Icon\\icon_lv2.ico"
+IDI_TRAYICON_LVL3    ICON DISCARDABLE "Resource\\Icon\\icon_lv3.ico"
 
 // Point all 4 IDs to the *same* multi-image icon file.
 // The resource compiler will assign them sequentially.
-IDI_SPEAKER_MUTE    ICON DISCARDABLE "Resource\\Icon\speaker_mute.ico"
-IDI_SPEAKER_LVL1    ICON DISCARDABLE "Resource\\Icon\speaker_lv1.ico"
-IDI_SPEAKER_LVL2    ICON DISCARDABLE "Resource\\Icon\speaker_lv2.ico"
-IDI_SPEAKER_LVL3    ICON DISCARDABLE "Resource\\Icon\speaker_lv3.ico"
+IDI_SPEAKER_MUTE    ICON DISCARDABLE "Resource\\Icon\\speaker_mute.ico"
+IDI_SPEAKER_LVL1    ICON DISCARDABLE "Resource\\Icon\\speaker_lv1.ico"
+IDI_SPEAKER_LVL2    ICON DISCARDABLE "Resource\\Icon\\speaker_lv2.ico"
+IDI_SPEAKER_LVL3    ICON DISCARDABLE "Resource\\Icon\\speaker_lv3.ico"
 
 // for Window control icon
-IDI_BTN_CLOSE       ICON DISCARDABLE "Resource\\Icon\btn_close.ico"
+IDI_BTN_CLOSE       ICON DISCARDABLE "Resource\\Icon\\btn_close.ico"
 
 // Menu
 IDR_TRAYMENU MENU DISCARDABLE
