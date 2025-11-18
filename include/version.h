@@ -3,7 +3,7 @@
 // Single source: numeric only
 #define VER_MAJOR 2
 #define VER_MINOR 3
-#define VER_PATCH 1
+#define VER_PATCH 2
 #define VER_BUILD 0
 
 // stringify helpers

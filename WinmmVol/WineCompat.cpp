@@ -4,9 +4,12 @@
 #include <shellapi.h>
 #include <commdlg.h>
 #include <winnt.h>
+#include <winver.h>
 #include <string>
+#include <vector>
 
 #pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "version.lib")
 
 // Simple message helpers
 namespace {
@@ -141,6 +144,69 @@ namespace {
         return time;
     }
 
+    // Reads FileVersion and OriginalFilename from version resource.
+    // Returns TRUE on success. originalIsWinmm is TRUE when OriginalFilename == "winmm.dll".
+    static BOOL GetFileVersionAndOriginalName(const std::wstring& path, ULARGE_INTEGER& fileVersion, BOOL& originalIsWinmm) {
+        fileVersion.QuadPart = 0;
+        originalIsWinmm = FALSE;
+
+        DWORD handle = 0;
+        DWORD size = GetFileVersionInfoSizeW(path.c_str(), &handle);
+        if (size == 0) {
+            return FALSE;
+        }
+
+        std::vector<BYTE> buffer(size);
+        if (!GetFileVersionInfoW(path.c_str(), 0, size, buffer.data())) {
+            return FALSE;
+        }
+
+        VS_FIXEDFILEINFO* pffi = NULL;
+        UINT ffiLen = 0;
+        if (!VerQueryValueW(buffer.data(), L"\\", reinterpret_cast<LPVOID*>(&pffi), &ffiLen)) {
+            return FALSE;
+        }
+        if (!pffi) {
+            return FALSE;
+        }
+
+        fileVersion.HighPart = pffi->dwFileVersionMS;
+        fileVersion.LowPart = pffi->dwFileVersionLS;
+
+        struct LANGANDCODEPAGE {
+            WORD wLanguage;
+            WORD wCodePage;
+        };
+
+        LANGANDCODEPAGE* lpTranslate = NULL;
+        UINT cbTranslate = 0;
+
+        if (VerQueryValueW(buffer.data(),
+            L"\\VarFileInfo\\Translation",
+            reinterpret_cast<LPVOID*>(&lpTranslate),
+            &cbTranslate) &&
+            lpTranslate && cbTranslate >= sizeof(LANGANDCODEPAGE)) {
+
+            wchar_t subBlock[64];
+            wsprintfW(subBlock,
+                L"\\StringFileInfo\\%04x%04x\\OriginalFilename",
+                lpTranslate[0].wLanguage,
+                lpTranslate[0].wCodePage);
+
+            LPVOID lpBuffer = NULL;
+            UINT cchBuffer = 0;
+            if (VerQueryValueW(buffer.data(), subBlock, &lpBuffer, &cchBuffer) &&
+                lpBuffer && cchBuffer > 0) {
+                const wchar_t* originalName = static_cast<const wchar_t*>(lpBuffer);
+                if (_wcsicmp(originalName, L"winmm.dll") == 0) {
+                    originalIsWinmm = TRUE;
+                }
+            }
+        }
+
+        return TRUE;
+    }
+
     static BOOL ErrorMessageHandle(PE_ERROR errNo) {
         const static UINT errType = MB_ICONERROR | MB_OK;
         const static UINT infoType = MB_ICONINFORMATION | MB_OK;
@@ -159,10 +225,50 @@ namespace {
 
         // Internal error of PE Convert
         if (errNo <= PE_IMPORT_TRUNKS) {
+#ifdef _DEBUG
+            switch (errNo) {
+            case PE_GET_SIZE:
+                pMsg = L"Failed to get file size.";
+            case PE_LARGE_MAP:
+                pMsg = L"File is too large to map.";
+            case PE_CREATE_MAP:
+                pMsg = L"Failed to create file mapping.";
+            case PE_FAIL_MAP:
+                pMsg = L"Failed to map file.";
+            case PE_SMALL_HEADER:
+                pMsg = L"File is too small to contain a valid PE header.";
+            case PE_MISSING_MZ:
+                pMsg = L"Selected file is not a valid PE (missing MZ header).";
+            case PE_INVALID_OFFSET:
+                pMsg = L"Invalid PE header offset.";
+            case PE_MISSING_PE:
+                pMsg = L"Selected file is not a valid PE (missing PE signature).";
+            case PE_INVALID_OPTION:
+                pMsg = L"PE optional header is truncated or invalid.";
+            case PE_UNKNOWN_OPTION:
+                pMsg = L"Unknown PE optional header type.";
+            case PE_NO_SECTIONS:
+                pMsg = L"PE file has no sections.";
+            case PE_OUT_OF_FILE:
+                pMsg = L"PE section headers are out of file bounds.";
+            case PE_INVALID_TBL_PTR:
+                pMsg = L"Import table pointer is invalid.";
+            case PE_MODULE_PTR:
+                pMsg = L"Failed to resolve module name pointer.";
+            case PE_MODULE_NAME:
+                pMsg = L"Invalid module name.";
+            case PE_IMPORT_TRUNKS:
+                pMsg = L"Failed to resolve import thunks.";
+            default:
+                pMsg = UILang::Get(L"ERR_UNKNOWN", tmp);
+            }
+            uType = errType;
+#else
             wchar_t msg[256]{ 0, };
             wsprintfW(msg, UILang::Get(L"ERR_PE_INTERNAL", tmp), errNo);
             pMsg = msg;
             uType = errType;
+#endif
         }
         else {
             wchar_t* msg;
@@ -371,13 +477,14 @@ namespace {
         ofn.hwndOwner = NULL;
         ofn.lpstrFile = fileBuffer;
         ofn.nMaxFile = MAX_PATH;
+        ofn.lpstrInitialDir = L".\\";
 
         ofn.lpstrFilter = GetFilterMessage();
         ofn.nFilterIndex = 2;
-        ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+        ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_DONTADDTORECENT;
         ofn.lpstrDefExt = L"exe";
 
-        if (!GetOpenFileNameW(&ofn)) {
+        if (!GetOpenFileNameW(&ofn) || !fileBuffer[0]) {
             return FALSE; // User canceled
         }
 
@@ -638,11 +745,13 @@ namespace {
                         if (ConvertFunctionName(funcName, isUnpatch, checkMode)) {
                             anyFuncPatched = TRUE;
                         }
+#ifdef _DEBUG
                         else {
                             anyFuncPatched = FALSE;
                             result = PE_MODULE_NAME;
                             break;
                         }
+#endif
                     }
                 }
             }
@@ -677,20 +786,22 @@ namespace {
                         if (ConvertFunctionName(funcName, isUnpatch, checkMode)) {
                             anyFuncPatched = TRUE;
                         }
+#ifdef _DEBUG
                         else {
                             anyFuncPatched = FALSE;
                             result = PE_MODULE_NAME;
                             break;
                         }
+#endif
                     }
                 }
             }
-
+#ifdef _DEBUG
             if (!anyFuncPatched) {
                 result = PE_NO_HAS_FUNC;
                 break;
             }
-
+#endif
         } while (FALSE);
 
         // Unmap and close mapping
@@ -700,7 +811,7 @@ namespace {
         return result;
     }
 
-    static void HandleDllCopyLogic(const std::wstring& dirPath, bool isUnpatch) {
+    static void HandleDllCopyLogic(const std::wstring& dirPath) {
         std::wstring inmmPath = dirPath + L"_inmm.dll";
         std::wstring winmmPath = dirPath + L"winmm.dll";
 
@@ -727,6 +838,22 @@ namespace {
         }
 
         // Both winmm.dll and _inmm.dll exist:
+        // If _inmm.dll is an original winmm.dll with higher version, bypass copy/rename.
+        if (hasInmm && hasWinmm) {
+            ULARGE_INTEGER verInmm;
+            ULARGE_INTEGER verWinmm;
+            BOOL origInmmIsWinmm = FALSE;
+            BOOL origDummy = FALSE;
+
+            if (GetFileVersionAndOriginalName(inmmPath, verInmm, origInmmIsWinmm) &&
+                GetFileVersionAndOriginalName(winmmPath, verWinmm, origDummy)) {
+                if (origInmmIsWinmm && verInmm.QuadPart > verWinmm.QuadPart) {
+                    // Bypass when _inmm.dll is newer winmm.dll
+                    return;
+                }
+            }
+        }
+
         // check winmm.dll readability
         HANDLE hWin = CreateFileW(
             winmmPath.c_str(),
@@ -824,7 +951,7 @@ namespace WineCompat {
             }
             else {
                 // Copy or rename winmm.dll to _inmm.dll according to rules
-                HandleDllCopyLogic(dir, isUnpatch);
+                HandleDllCopyLogic(dir);
             }
 
             // Create .org backup

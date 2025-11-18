@@ -945,6 +945,9 @@ namespace {
                             if (IsWindow(g_hwndPanel)) {
                                 VolumeSlider::Show(g_hwndPanel, g_lastShowPt);
                             }
+                            else {
+                                PostQuitMessage(0);
+                            }
                         }
                         return 0; // IMPORTANT: stop here
                     }
