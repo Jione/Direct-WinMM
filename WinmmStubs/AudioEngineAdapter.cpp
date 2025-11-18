@@ -131,6 +131,7 @@ namespace {
     static BOOL  gBufferEmpty = FALSE; // Has non-looping playback finished
     static std::wstring gPathFormat = L"music\\Track%02d"; // Default path format base
     static BOOL  gPathFormatDetected = FALSE;              // Flag to run detection only once
+    static char  gTrackFileType[100] = { 0 };              // AD_FileType index per track (1..99)
     static DWORD gRangeStartMs = 0;   // The absolute start Ms of the first segment
     static DWORD gRangeTotalMs = 0;   // The total duration of the current range
     static int   gRangeToTrack = 1;   // Store the target TO position for end-of-play status
@@ -142,7 +143,6 @@ namespace {
     // --- General Utilities ---
 
     static inline DWORD MinDW(DWORD a, DWORD b) { return (a < b) ? a : b; }
-    static inline BOOL  PathExistsW(const wchar_t* p) { return (p && PathFileExistsW(p)); }
 
     static DWORD MsToFrame(DWORD ms, const AD_Format& f) {
         if (ms == 0xFFFFFFFF) return 0xFFFFFFFF;
@@ -159,16 +159,19 @@ namespace {
 
     // --- Track/Disc Logic (Helpers for Public API) ---
     static void InitializeTrackPath() {
-        if (gPathFormatDetected) return; // Already detected or set externally
+        if (gPathFormatDetected) return; // Already detected
 
-        wchar_t tempPath[MAX_PATH];
+        // Reset track file type index and track count before detection
+        ZeroMemory(gTrackFileType, sizeof(gTrackFileType));
+        gCountTracks = 0;
+
         bool currentFormatWorks = false;
         const wchar_t* exts[] = { L".wav", L".ogg", L".mp3", L".flac" };
 
-        // Check if the current gPathFormat works
+        // Check if the current gPathFormat works at least for one track
         for (int t = 1; t <= 99; ++t) {
             wchar_t base[MAX_PATH];
-            wsprintfW(base, gPathFormat.c_str(), t); // Check current format
+            wsprintfW(base, gPathFormat.c_str(), t);
             for (int i = 0; i < _countof(exts); ++i) {
                 wchar_t fullPath[MAX_PATH];
                 lstrcpynW(fullPath, base, MAX_PATH);
@@ -244,6 +247,33 @@ namespace {
             }
         }
 
+        // Build track file type index and track count for the final gPathFormat
+        int maxTrack = 0;
+        for (int t = 1; t <= 99; ++t) {
+            wchar_t base[MAX_PATH];
+            wsprintfW(base, gPathFormat.c_str(), t);
+            for (int i = 0; i < _countof(exts); ++i) {
+                wchar_t fullPath[MAX_PATH];
+                lstrcpynW(fullPath, base, MAX_PATH);
+                lstrcatW(fullPath, exts[i]);
+
+                if (PathFileExistsW(fullPath)) {
+                    AD_FileType fileType = AD_File_None;
+                    switch (i) {
+                    case 0: fileType = AD_File_Wav;  break;
+                    case 1: fileType = AD_File_Ogg;  break;
+                    case 2: fileType = AD_File_Mp3;  break;
+                    case 3: fileType = AD_File_Flac; break;
+                    default: fileType = AD_File_None; break;
+                    }
+                    gTrackFileType[t] = (char)fileType;
+                    maxTrack = t;
+                    break;
+                }
+            }
+        }
+        gCountTracks = maxTrack; // 0 if none found
+
         gPathFormatDetected = TRUE;
     }
 
@@ -251,42 +281,56 @@ namespace {
     static BOOL BuildTrackPath(int track, wchar_t* out, size_t cch) {
         if (!out || cch == 0) return FALSE;
         out[0] = L'\0';
+
+        if (track <= 0 || track >= 100) return FALSE;
+
         InitializeTrackPath();
-        const wchar_t* exts[] = { L".wav", L".ogg", L".mp3", L".flac" };
+
+        AD_FileType fileType = AD_File_None;
+        if (track >= 0 && track < (int)(_countof(gTrackFileType))) {
+            fileType = (AD_FileType)gTrackFileType[track];
+        }
+        if (fileType == AD_File_None) {
+            return FALSE; // No cached file type for this track
+        }
+
+        const wchar_t* ext = NULL;
+        switch (fileType) {
+        case AD_File_Wav:  ext = L".wav";  break;
+        case AD_File_Ogg:  ext = L".ogg";  break;
+        case AD_File_Mp3:  ext = L".mp3";  break;
+        case AD_File_Flac: ext = L".flac"; break;
+        default: return FALSE;
+        }
+
         wchar_t formatBase[MAX_PATH] = { 0 };
         wsprintfW(formatBase, gPathFormat.c_str(), track);
 
-        // Try appending extensions
-        for (int i = 0; i < _countof(exts); ++i) {
-            wchar_t fullPath[MAX_PATH];
-            lstrcpynW(fullPath, formatBase, MAX_PATH);
-            lstrcatW(fullPath, exts[i]);
-
-            if (PathFileExistsW(fullPath)) {
-                lstrcpynW(out, fullPath, cch);
-                return TRUE;
-            }
+        lstrcpynW(out, formatBase, (int)cch);
+        int curLen = lstrlenW(out);
+        int extLen = lstrlenW(ext);
+        if ((size_t)(curLen + extLen + 1) > cch) {
+            return FALSE;
         }
-
-        return FALSE; // No matching file found
+        lstrcatW(out, ext);
+        return TRUE;
     }
 
     // Scans 1..99 using BuildTrackPath, considers the 'highest number' found
     static BOOL CountDiscNumTracks(int* outCount) {
         if (!outCount) return FALSE;
-        // Count files once
-        if (0 <= gCountTracks) {
-            *outCount = gCountTracks;
+
+        // InitializeTrackPath will build gTrackFileType[] and gCountTracks
+        if (!gPathFormatDetected) {
+            InitializeTrackPath();
+        }
+
+        if (gCountTracks < 0) {
+            *outCount = 0;
             return TRUE;
         }
-        int maxIdx = 0;
-        wchar_t tmp[MAX_PATH];
-        for (int t = 1; t <= 99; ++t) {
-            if (BuildTrackPath(t, tmp, MAX_PATH)) {
-                maxIdx = t; // Records the highest index, regardless of continuity
-            }
-        }
-        *outCount = gCountTracks = maxIdx; // 0 if none found
+
+        *outCount = gCountTracks;
         return TRUE; // Returns TRUE even if 0
     }
 
@@ -563,7 +607,10 @@ namespace {
             }
             AudioDecoder probe;
             if (!probe.OpenAuto(path)) {
-                continue; // Open failed -> skip
+                // Cached track type may be stale. Rebuild index once and skip this track.
+                gPathFormatDetected = FALSE;
+                InitializeTrackPath();
+                continue;
             }
             AD_Format f; if (!probe.GetFormat(&f)) { probe.Close(); continue; }
             DWORD totFrames = probe.TotalFrames();
@@ -672,7 +719,10 @@ namespace {
 
             AudioDecoder dec;
             if (!dec.OpenAuto(path)) {
-                continue; // Open failed -> skip
+                // Cached track type may be stale. Rebuild index once and skip this track.
+                gPathFormatDetected = FALSE;
+                InitializeTrackPath();
+                continue;
             }
 
             AD_Format f; if (!dec.GetFormat(&f)) { dec.Close(); continue; }
@@ -894,7 +944,10 @@ namespace AudioEngine {
     void SetTrackPathFormat(const wchar_t* format) {
         if (format && format[0]) {
             gPathFormat = format;
-            gPathFormatDetected = TRUE; // Mark as explicitly set, skip auto-detection
+            // Reset detection so that track index and count are rebuilt lazily.
+            gPathFormatDetected = FALSE;
+            gCountTracks = -1;
+            ZeroMemory(gTrackFileType, sizeof(gTrackFileType));
         }
     }
 
